@@ -29,3 +29,5 @@ cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
 以上命令已在本地通过。
+
+`bun run tauri dev` 已成功启动 Vite dev server 和 Tauri 桌面进程。
