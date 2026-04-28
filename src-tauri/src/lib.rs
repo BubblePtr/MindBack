@@ -1,6 +1,8 @@
 mod app_state;
 mod capture;
 mod commands;
+#[cfg(debug_assertions)]
+mod dev_bridge;
 mod models;
 mod recognition;
 mod recorder;
@@ -15,6 +17,8 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let state = AppState::new()?;
+            #[cfg(debug_assertions)]
+            dev_bridge::start(state.clone());
             app.manage(state);
             resident::setup(app)?;
             Ok(())

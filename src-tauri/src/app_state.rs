@@ -9,6 +9,7 @@ use std::{
 
 use crate::{recorder, storage::Storage};
 
+#[derive(Clone)]
 pub struct AppState {
     pub storage: Storage,
     pub recording: Arc<AtomicBool>,

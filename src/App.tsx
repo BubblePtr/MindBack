@@ -28,6 +28,13 @@ const DEFAULT_CONFIG: AppConfig = {
 };
 
 type ActiveTab = "home" | "settings";
+type TimelineBucket = {
+  key: string;
+  range: string;
+  entries: LogEntry[];
+  title: string;
+  detail: string;
+};
 
 function formatEntryTime(timestamp: string) {
   return new Date(timestamp).toLocaleTimeString([], {
@@ -36,8 +43,56 @@ function formatEntryTime(timestamp: string) {
   });
 }
 
+function formatTime(date: Date) {
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getBucketStart(timestamp: string) {
+  const time = new Date(timestamp);
+  const bucketStart = new Date(time);
+  bucketStart.setMinutes(Math.floor(time.getMinutes() / 30) * 30, 0, 0);
+  return bucketStart;
+}
+
+function formatBucketRange(bucketKey: string) {
+  const start = new Date(bucketKey);
+  const end = new Date(start);
+  end.setMinutes(start.getMinutes() + 30);
+  return `${formatTime(start)} - ${formatTime(end)}`;
+}
+
+function dominantIntent(entries: LogEntry[]) {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    counts.set(entry.intent, (counts.get(entry.intent) ?? 0) + 1);
+  }
+
+  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? "暂无判断";
+}
+
+function summarizeBucket(key: string, bucketEntries: LogEntry[]): TimelineBucket {
+  const onProject = bucketEntries.filter((entry) => entry.is_on_project).length;
+  const ratio = Math.round((onProject / bucketEntries.length) * 100);
+  const intent = dominantIntent(bucketEntries);
+  const context = bucketEntries.find((entry) => entry.visible_context)?.visible_context;
+
+  return {
+    key,
+    range: formatBucketRange(key),
+    entries: bucketEntries,
+    title: intent,
+    detail: `${bucketEntries.length} 条记录，${ratio}% 符合今日项目${context ? `。${context}` : "。"}`,
+  };
+}
+
 function formatError(error: unknown) {
   const text = String(error);
+  if (text.includes("Failed to fetch")) {
+    return "当前浏览器预览未连接 MindBack 调试后端；请先运行 bun run tauri dev。";
+  }
   if (text.includes("invoke")) {
     return "当前浏览器预览未连接 Tauri 后端；请在桌面应用中使用记录功能。";
   }
@@ -49,7 +104,8 @@ function App() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
-  const [selectedTimestamp, setSelectedTimestamp] = useState<string | null>(null);
+  const [selectedBucketKey, setSelectedBucketKey] = useState<string | null>(null);
+  const [detailEntry, setDetailEntry] = useState<LogEntry | null>(null);
   const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>("");
   const [isBusy, setBusy] = useState(false);
@@ -65,21 +121,34 @@ function App() {
     [entries],
   );
 
-  const selectedIndex = useMemo(() => {
-    if (timelineEntries.length === 0) return 0;
-    const index = timelineEntries.findIndex(
-      (entry) => entry.timestamp === selectedTimestamp,
-    );
-    return index >= 0 ? index : timelineEntries.length - 1;
-  }, [selectedTimestamp, timelineEntries]);
+  const timelineBuckets = useMemo(() => {
+    const buckets = new Map<string, LogEntry[]>();
+    for (const entry of timelineEntries) {
+      const key = getBucketStart(entry.timestamp).toISOString();
+      buckets.set(key, [...(buckets.get(key) ?? []), entry]);
+    }
 
-  const selectedEntry = timelineEntries[selectedIndex] ?? null;
+    return [...buckets.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, bucketEntries]) => summarizeBucket(key, bucketEntries));
+  }, [timelineEntries]);
+
+  const selectedBucketIndex = useMemo(() => {
+    if (timelineBuckets.length === 0) return 0;
+    const index = timelineBuckets.findIndex((bucket) => bucket.key === selectedBucketKey);
+    return index >= 0 ? index : timelineBuckets.length - 1;
+  }, [selectedBucketKey, timelineBuckets]);
+
+  const selectedBucket = timelineBuckets[selectedBucketIndex] ?? null;
+  const visibleEntries = selectedBucket?.entries ?? [];
 
   const onProjectRatio = useMemo(() => {
     if (entries.length === 0) return "0%";
     const onProject = entries.filter((entry) => entry.is_on_project).length;
     return `${Math.round((onProject / entries.length) * 100)}%`;
   }, [entries]);
+
+  const detailThumbUrl = detailEntry ? thumbUrls[detailEntry.screenshot_thumb] : "";
 
   async function refresh() {
     const [nextConfig, nextStatus, nextEntries] = await Promise.all([
@@ -97,18 +166,18 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (timelineEntries.length === 0) {
-      setSelectedTimestamp(null);
+    if (timelineBuckets.length === 0) {
+      setSelectedBucketKey(null);
       return;
     }
 
     if (
-      selectedTimestamp === null ||
-      !timelineEntries.some((entry) => entry.timestamp === selectedTimestamp)
+      selectedBucketKey === null ||
+      !timelineBuckets.some((bucket) => bucket.key === selectedBucketKey)
     ) {
-      setSelectedTimestamp(timelineEntries[timelineEntries.length - 1].timestamp);
+      setSelectedBucketKey(timelineBuckets[timelineBuckets.length - 1].key);
     }
-  }, [selectedTimestamp, timelineEntries]);
+  }, [selectedBucketKey, timelineBuckets]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -167,7 +236,6 @@ function App() {
     setBusy(true);
     try {
       await recordOnce();
-      setMessage("已写入一条监督记录");
       await refresh();
     } catch (error) {
       setMessage(formatError(error));
@@ -180,7 +248,6 @@ function App() {
     setBusy(true);
     try {
       setStatus(await startRecording());
-      setMessage("记录已开始");
     } catch (error) {
       setMessage(formatError(error));
     } finally {
@@ -192,12 +259,20 @@ function App() {
     setBusy(true);
     try {
       setStatus(await stopRecording());
-      setMessage("记录已停止");
     } catch (error) {
       setMessage(formatError(error));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleRecordingToggle() {
+    if (status?.is_recording) {
+      await handleStop();
+      return;
+    }
+
+    await handleStart();
   }
 
   async function handleSummary() {
@@ -219,7 +294,6 @@ function App() {
           <img className="brand-mark" src={appIcon} alt="" aria-hidden="true" />
           <div>
             <h1>MindBack</h1>
-            <p>回神</p>
           </div>
         </div>
 
@@ -260,21 +334,26 @@ function App() {
           <>
             <header className="workspace-header">
               <div>
-                <span className="eyebrow">Home</span>
                 <h2>{config.project_name || "尚未设置今日项目"}</h2>
-                <p>{config.project_description || "设置今日项目后开始记录。"}</p>
               </div>
               <div className="header-actions">
-                <button onClick={handleStart} disabled={isBusy} type="button">
-                  开始记录
-                </button>
+                <div className="header-stats" aria-label="今日快速统计">
+                  <span>
+                    <strong>{entries.length}</strong>
+                    记录
+                  </span>
+                  <span>
+                    <strong>{onProjectRatio}</strong>
+                    符合
+                  </span>
+                </div>
                 <button
-                  className="secondary"
-                  onClick={handleStop}
+                  className={status?.is_recording ? "record-toggle recording" : "record-toggle"}
+                  onClick={handleRecordingToggle}
                   disabled={isBusy}
                   type="button"
                 >
-                  停止
+                  {status?.is_recording ? "停止记录" : "开始记录"}
                 </button>
               </div>
             </header>
@@ -298,20 +377,22 @@ function App() {
                   </div>
                 ) : (
                   <div className="capture-browser">
-                    <div className="capture-grid" aria-label="截图预览">
-                      {timelineEntries.map((entry, index) => {
-                        const isSelected = index === selectedIndex;
+                    <div className="bucket-heading">
+                      <strong>{selectedBucket?.range}</strong>
+                      <span>{visibleEntries.length} 张截图</span>
+                    </div>
+
+                    <div className="capture-grid" aria-label="当前时间段截图预览">
+                      {visibleEntries.map((entry) => {
                         const thumbUrl = thumbUrls[entry.screenshot_thumb];
 
                         return (
                           <button
-                            className={
-                              isSelected ? "capture-tile selected" : "capture-tile"
-                            }
+                            className="capture-tile"
                             key={`${entry.timestamp}-${entry.screenshot_thumb}`}
                             type="button"
-                            onClick={() => setSelectedTimestamp(entry.timestamp)}
-                            aria-pressed={isSelected}
+                            onClick={() => setDetailEntry(entry)}
+                            aria-label={`查看 ${formatEntryTime(entry.timestamp)} 的识别结果`}
                           >
                             {thumbUrl ? (
                               <img src={thumbUrl} alt="" aria-hidden="true" />
@@ -332,38 +413,23 @@ function App() {
 
                     <div className="timeline-picker">
                       <div className="timeline-rule" aria-hidden="true">
-                        {timelineEntries.map((entry, index) => (
+                        {timelineBuckets.map((bucket, index) => (
                           <button
                             className={
-                              index === selectedIndex ? "timeline-tick selected" : "timeline-tick"
+                              index === selectedBucketIndex ? "timeline-tick selected" : "timeline-tick"
                             }
-                            key={`${entry.timestamp}-tick`}
+                            key={`${bucket.key}-tick`}
                             type="button"
-                            onClick={() => setSelectedTimestamp(entry.timestamp)}
-                            aria-label={`选择 ${formatEntryTime(entry.timestamp)} 的记录`}
+                            onClick={() => setSelectedBucketKey(bucket.key)}
+                            aria-label={`选择 ${bucket.range} 的记录`}
                           />
                         ))}
                       </div>
-                      <input
-                        aria-label="选择时间线记录"
-                        className="timeline-range"
-                        type="range"
-                        min="0"
-                        max={Math.max(timelineEntries.length - 1, 0)}
-                        value={selectedIndex}
-                        onChange={(event) =>
-                          setSelectedTimestamp(
-                            timelineEntries[Number(event.target.value)]?.timestamp ?? null,
-                          )
-                        }
-                      />
                       <div className="timeline-labels" aria-hidden="true">
-                        <span>{formatEntryTime(timelineEntries[0].timestamp)}</span>
-                        <strong>{formatEntryTime(selectedEntry?.timestamp ?? "")}</strong>
+                        <span>{timelineBuckets[0]?.range}</span>
+                        <strong>{selectedBucket?.range}</strong>
                         <span>
-                          {formatEntryTime(
-                            timelineEntries[timelineEntries.length - 1].timestamp,
-                          )}
+                          {timelineBuckets[timelineBuckets.length - 1]?.range}
                         </span>
                       </div>
                     </div>
@@ -375,47 +441,25 @@ function App() {
                 <div className="panel-heading">
                   <div>
                     <span className="eyebrow">今日概要</span>
-                    <h3 id="summary-title">专注概览</h3>
+                    <h3 id="summary-title">时间段摘要</h3>
                   </div>
                 </div>
-                <dl className="metrics">
-                  <div>
-                    <dt>记录数</dt>
-                    <dd>{entries.length}</dd>
+                {timelineBuckets.length === 0 ? (
+                  <div className="summary-empty">
+                    <strong>等待摘要</strong>
+                    <p>开始记录后，这里会按时间段汇总你在做什么。</p>
                   </div>
-                  <div>
-                    <dt>符合比例</dt>
-                    <dd>{onProjectRatio}</dd>
+                ) : (
+                  <div className="summary-list">
+                    {timelineBuckets.map((section) => (
+                      <article className="summary-entry" key={section.range}>
+                        <time>{section.range}</time>
+                        <strong>{section.title}</strong>
+                        <p>{section.detail}</p>
+                      </article>
+                    ))}
                   </div>
-                  <div>
-                    <dt>截图间隔</dt>
-                    <dd>{config.interval_seconds}s</dd>
-                  </div>
-                </dl>
-                <div className="summary-card">
-                  <span>选中记录</span>
-                  {selectedEntry ? (
-                    <>
-                      <strong>{selectedEntry.intent}</strong>
-                      <p>{selectedEntry.reason}</p>
-                      <small>{selectedEntry.visible_context}</small>
-                      <div
-                        className={
-                          selectedEntry.is_on_project ? "badge good" : "badge warn"
-                        }
-                      >
-                        {selectedEntry.is_on_project ? "符合" : "偏离"} ·{" "}
-                        {Math.round(selectedEntry.confidence * 100)}%
-                      </div>
-                    </>
-                  ) : (
-                    <strong>等待记录</strong>
-                  )}
-                </div>
-                <div className="summary-card compact">
-                  <span>当前模型</span>
-                  <strong>{config.model}</strong>
-                </div>
+                )}
                 <div className="summary-actions">
                   <button onClick={handleSummary} disabled={isBusy} type="button">
                     生成日报
@@ -431,6 +475,51 @@ function App() {
                 {message ? <p className="message">{message}</p> : null}
               </aside>
             </div>
+
+            {detailEntry ? (
+              <div className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-modal-title">
+                <button
+                  className="entry-modal-backdrop"
+                  type="button"
+                  aria-label="关闭识别结果"
+                  onClick={() => setDetailEntry(null)}
+                />
+                <section className="entry-modal-panel">
+                  <div className="entry-modal-heading">
+                    <div>
+                      <span className="eyebrow">模型识别结果</span>
+                      <h3 id="entry-modal-title">{formatEntryTime(detailEntry.timestamp)}</h3>
+                    </div>
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => setDetailEntry(null)}
+                    >
+                      关闭
+                    </button>
+                  </div>
+                  <div className="entry-modal-body">
+                    <div className="entry-preview">
+                      {detailThumbUrl ? (
+                        <img src={detailThumbUrl} alt="" />
+                      ) : (
+                        <span className="capture-placeholder" aria-hidden="true" />
+                      )}
+                    </div>
+                    <div className="entry-result">
+                      <span>Summary</span>
+                      <strong>{detailEntry.intent}</strong>
+                      <p>{detailEntry.reason}</p>
+                      <small>{detailEntry.visible_context}</small>
+                      <div className={detailEntry.is_on_project ? "badge good" : "badge warn"}>
+                        {detailEntry.is_on_project ? "符合" : "偏离"} ·{" "}
+                        {Math.round(detailEntry.confidence * 100)}%
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            ) : null}
           </>
         ) : (
           <>
