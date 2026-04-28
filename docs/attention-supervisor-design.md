@@ -1,6 +1,14 @@
-# Attention 打卡监督工具设计
+# MindBack（回神）设计
 
 日期：2026-04-28
+
+## 产品命名
+
+- 英文名：MindBack
+- 中文名：回神
+- 副标题：把注意力带回今日项目
+
+命名语义是“让跑远的注意力回来”。产品表达应偏向自我监督和温和召回，而不是监控、拦截或惩罚。
 
 ## 背景
 
@@ -173,7 +181,7 @@ MineContext 的公开配置示例中，截图间隔为 `capture.screenshot.captu
 本地数据放在 macOS Application Support 目录：
 
 ```text
-~/Library/Application Support/AttentionSupervisor/
+~/Library/Application Support/MindBack/
 └─ days/
    └─ YYYY-MM-DD/
       ├─ log.jsonl
