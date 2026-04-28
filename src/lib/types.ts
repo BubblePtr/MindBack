@@ -11,6 +11,7 @@ export type RecognitionResult = {
   confidence: number;
   reason: string;
   visible_context: string;
+  error: string | null;
 };
 
 export type LogEntry = RecognitionResult & {

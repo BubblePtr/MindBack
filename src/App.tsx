@@ -12,6 +12,7 @@ import {
 import type { AppConfig, AppStatus, LogEntry } from "./lib/types";
 
 const MODELS = [
+  "mlx-community/Qwen3-VL-4B-Instruct-4bit",
   "mlx-community/Qwen3-VL-8B-Instruct-4bit",
   "mlx-community/gemma-4-e4b-it-4bit",
 ];

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_MODEL: &str = "mlx-community/Qwen3-VL-8B-Instruct-4bit";
+pub const DEFAULT_MODEL: &str = "mlx-community/Qwen3-VL-4B-Instruct-4bit";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AppConfig {
@@ -29,6 +29,7 @@ pub struct RecognitionResult {
     pub confidence: f32,
     pub reason: String,
     pub visible_context: String,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

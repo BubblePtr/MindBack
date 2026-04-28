@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def parse_model_json(text: str) -> dict[str, Any]:
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        raise
+
+
 def main() -> int:
     args = parse_args()
     image_path = Path(args.image).expanduser()
@@ -46,7 +62,7 @@ def main() -> int:
         return unavailable(f"image not found: {image_path}")
 
     try:
-        from mlx_vlm import generate, load  # type: ignore
+        from mlx_vlm import apply_chat_template, generate, load  # type: ignore
     except Exception as exc:  # pragma: no cover - depends on local MLX install
         return unavailable(f"mlx-vlm is not available: {exc}")
 
@@ -59,20 +75,26 @@ def main() -> int:
 
     try:
         model, processor = load(args.model)
+        formatted_prompt = apply_chat_template(
+            processor,
+            model.config,
+            prompt,
+            num_images=1,
+        )
         response = generate(
             model,
             processor,
-            prompt=prompt,
-            image=str(image_path),
+            prompt=formatted_prompt,
+            image=[str(image_path)],
             max_tokens=256,
             temperature=0.0,
         )
     except Exception as exc:  # pragma: no cover - depends on local MLX/model state
         return unavailable(f"mlx-vlm recognition failed: {exc}")
 
-    text = str(response).strip()
+    text = getattr(response, "text", str(response)).strip()
     try:
-        payload = json.loads(text)
+        payload = parse_model_json(text)
     except json.JSONDecodeError:
         emit(
             {

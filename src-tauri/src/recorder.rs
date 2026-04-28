@@ -22,7 +22,7 @@ pub fn record_once(storage: &Storage, config: &AppConfig) -> Result<LogEntry> {
         confidence: recognition.confidence,
         reason: recognition.reason,
         visible_context: recognition.visible_context,
-        error: None,
+        error: recognition.error,
     };
 
     storage.append_log_entry(&entry)?;
