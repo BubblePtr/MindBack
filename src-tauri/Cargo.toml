@@ -1,0 +1,26 @@
+[package]
+name = "mindback"
+version = "0.1.0"
+description = "MindBack desktop app"
+authors = ["MindBack"]
+edition = "2021"
+
+[lib]
+name = "mindback_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
