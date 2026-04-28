@@ -1,0 +1,35 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <g fill="none" stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Nested frames as awareness layers -->
+    <rect x="18" y="18" width="64" height="64" rx="18" stroke-width="2.2" opacity="0.3"/>
+    <rect x="28" y="28" width="44" height="44" rx="13" stroke-width="2" opacity="0.45"/>
+    <rect x="38" y="38" width="24" height="24" rx="8" stroke-width="1.5" opacity="0.25"/>
+    <!-- Small opening on the left side of outer frame: the "return gate" -->
+    <path d="M 18 40 L 18 32" stroke-width="2.2" opacity="0.3"/>
+  </g>
+  <!-- Nodes at frame intersections: awareness checkpoints -->
+  <g fill="#1A1A1A">
+    <!-- Focus node at center -->
+    <circle cx="50" cy="50" r="4.5"/>
+    <circle cx="50" cy="50" r="9" fill="none" stroke="#1A1A1A" stroke-width="0.8" opacity="0.18"/>
+    <!-- Nodes on middle frame -->
+    <circle cx="28" cy="28" r="3" opacity="0.55"/>
+    <circle cx="72" cy="28" r="2.5" opacity="0.45"/>
+    <circle cx="28" cy="72" r="2.5" opacity="0.45"/>
+    <circle cx="72" cy="72" r="3" opacity="0.55"/>
+    <!-- Nodes on outer field -->
+    <circle cx="18" cy="18" r="2" opacity="0.3"/>
+    <circle cx="82" cy="18" r="2" opacity="0.3"/>
+    <circle cx="18" cy="82" r="2" opacity="0.3"/>
+    <circle cx="82" cy="82" r="2" opacity="0.3"/>
+    <!-- Gateway dot -->
+    <circle cx="18" cy="50" r="2.5" fill="none" stroke="#1A1A1A" stroke-width="1.5"/>
+  </g>
+  <!-- Subtle connections between layers -->
+  <g fill="none" stroke="#1A1A1A" stroke-width="0.8" opacity="0.15">
+    <line x1="50" y1="41" x2="50" y2="28"/>
+    <line x1="50" y1="59" x2="50" y2="72"/>
+    <line x1="41" y1="50" x2="28" y2="50"/>
+    <line x1="59" y1="50" x2="72" y2="50"/>
+  </g>
+</svg>

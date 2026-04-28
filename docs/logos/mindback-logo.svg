@@ -1,0 +1,29 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <g fill="none" stroke="#1A1A1A" stroke-linecap="round">
+    <!-- Subtle guiding circle: the "field of awareness" -->
+    <circle cx="50" cy="50" r="35" stroke-width="0.8" opacity="0.12" stroke-dasharray="2 4"/>
+    <!-- Curved edges -->
+    <path d="M 50 30 Q 36 42, 26 58" stroke-width="2" opacity="0.35"/>
+    <path d="M 50 30 Q 64 40, 72 52" stroke-width="2" opacity="0.35"/>
+    <path d="M 26 58 Q 34 68, 44 74" stroke-width="1.8" opacity="0.3"/>
+    <path d="M 72 52 Q 58 68, 44 74" stroke-width="1.8" opacity="0.3"/>
+    <path d="M 50 30 Q 66 26, 78 34" stroke-width="1.2" opacity="0.2"/>
+    <path d="M 26 58 Q 18 46, 18 38" stroke-width="1.2" opacity="0.2"/>
+    <path d="M 44 74 Q 50 80, 56 76" stroke-width="1.2" opacity="0.2"/>
+    <!-- Tension line: diagonal from focus to grounding node -->
+    <path d="M 50 30 L 44 74" stroke-width="1" opacity="0.15" stroke-dasharray="3 5"/>
+  </g>
+  <g fill="#1A1A1A">
+    <!-- Focus node: larger, with subtle ring -->
+    <circle cx="50" cy="30" r="6"/>
+    <circle cx="50" cy="30" r="10" fill="none" stroke="#1A1A1A" stroke-width="0.8" opacity="0.2"/>
+    <!-- Primary support nodes -->
+    <circle cx="26" cy="58" r="4.5"/>
+    <circle cx="72" cy="52" r="4"/>
+    <circle cx="44" cy="74" r="4"/>
+    <!-- Satellite nodes -->
+    <circle cx="18" cy="38" r="2.5" opacity="0.5"/>
+    <circle cx="78" cy="34" r="2.5" opacity="0.5"/>
+    <circle cx="56" cy="76" r="2" opacity="0.4"/>
+  </g>
+</svg>

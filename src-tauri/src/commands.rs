@@ -1,5 +1,6 @@
 use std::sync::atomic::Ordering;
 
+use base64::{engine::general_purpose, Engine as _};
 use chrono::Local;
 use tauri::State;
 
@@ -65,6 +66,21 @@ pub fn record_once(state: State<'_, AppState>) -> Result<LogEntry, String> {
 #[tauri::command]
 pub fn list_today_entries(state: State<'_, AppState>) -> Result<Vec<LogEntry>, String> {
     state.storage.list_today_entries().map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn get_today_thumbnail(
+    screenshot_thumb: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let bytes = state
+        .storage
+        .read_today_thumb(&screenshot_thumb)
+        .map_err(to_command_error)?;
+    Ok(format!(
+        "data:image/jpeg;base64,{}",
+        general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 #[tauri::command]

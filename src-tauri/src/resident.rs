@@ -1,4 +1,5 @@
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     App, AppHandle, Manager, Window, WindowEvent,
@@ -11,6 +12,7 @@ const MENU_SHOW: &str = "show";
 const MENU_START: &str = "start_recording";
 const MENU_STOP: &str = "stop_recording";
 const MENU_QUIT: &str = "quit";
+const TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/tray-icon.png");
 
 pub fn setup(app: &mut App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, MENU_SHOW, "显示 MindBack", true, None::<&str>)?;
@@ -19,10 +21,13 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, MENU_QUIT, "退出 MindBack", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&show, &start, &stop, &separator, &quit])?;
+    let tray_icon = Image::from_bytes(TRAY_ICON_BYTES)?;
 
-    let mut tray = TrayIconBuilder::with_id("main")
+    TrayIconBuilder::with_id("main")
         .menu(&menu)
         .tooltip("MindBack")
+        .icon(tray_icon)
+        .icon_as_template(false)
         .show_menu_on_left_click(false)
         .on_menu_event(handle_menu_event)
         .on_tray_icon_event(|tray, event| {
@@ -34,13 +39,8 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
             {
                 show_main_window(tray.app_handle());
             }
-        });
-
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone()).icon_as_template(true);
-    }
-
-    tray.build(app)?;
+        })
+        .build(app)?;
     Ok(())
 }
 

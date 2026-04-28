@@ -4,6 +4,7 @@ import {
   generateSummary,
   getConfig,
   getStatus,
+  getTodayThumbnail,
   listTodayEntries,
   recordOnce,
   saveConfig,
@@ -11,6 +12,7 @@ import {
   stopRecording,
 } from "./lib/api";
 import type { AppConfig, AppStatus, LogEntry } from "./lib/types";
+import appIcon from "./assets/mindback-app-icon.png";
 
 const MODELS = [
   "mlx-community/Qwen3-VL-4B-Instruct-4bit",
@@ -27,6 +29,13 @@ const DEFAULT_CONFIG: AppConfig = {
 
 type ActiveTab = "home" | "settings";
 
+function formatEntryTime(timestamp: string) {
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function formatError(error: unknown) {
   const text = String(error);
   if (text.includes("invoke")) {
@@ -40,8 +49,31 @@ function App() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [selectedTimestamp, setSelectedTimestamp] = useState<string | null>(null);
+  const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>("");
   const [isBusy, setBusy] = useState(false);
+
+  const timelineEntries = useMemo(
+    () =>
+      entries
+        .slice()
+        .sort(
+          (left, right) =>
+            new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime(),
+        ),
+    [entries],
+  );
+
+  const selectedIndex = useMemo(() => {
+    if (timelineEntries.length === 0) return 0;
+    const index = timelineEntries.findIndex(
+      (entry) => entry.timestamp === selectedTimestamp,
+    );
+    return index >= 0 ? index : timelineEntries.length - 1;
+  }, [selectedTimestamp, timelineEntries]);
+
+  const selectedEntry = timelineEntries[selectedIndex] ?? null;
 
   const onProjectRatio = useMemo(() => {
     if (entries.length === 0) return "0%";
@@ -63,6 +95,59 @@ function App() {
   useEffect(() => {
     refresh().catch((error) => setMessage(formatError(error)));
   }, []);
+
+  useEffect(() => {
+    if (timelineEntries.length === 0) {
+      setSelectedTimestamp(null);
+      return;
+    }
+
+    if (
+      selectedTimestamp === null ||
+      !timelineEntries.some((entry) => entry.timestamp === selectedTimestamp)
+    ) {
+      setSelectedTimestamp(timelineEntries[timelineEntries.length - 1].timestamp);
+    }
+  }, [selectedTimestamp, timelineEntries]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadThumbnails() {
+      const missingEntries = timelineEntries.filter(
+        (entry) => entry.screenshot_thumb && thumbUrls[entry.screenshot_thumb] === undefined,
+      );
+
+      if (missingEntries.length === 0) return;
+
+      const loadedEntries = await Promise.all(
+        missingEntries.map(async (entry) => {
+          try {
+            const url = await getTodayThumbnail(entry.screenshot_thumb);
+            return [entry.screenshot_thumb, url] as const;
+          } catch {
+            return [entry.screenshot_thumb, ""] as const;
+          }
+        }),
+      );
+
+      if (isCancelled) return;
+
+      setThumbUrls((current) => {
+        const next = { ...current };
+        for (const [path, url] of loadedEntries) {
+          next[path] = url;
+        }
+        return next;
+      });
+    }
+
+    loadThumbnails();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [thumbUrls, timelineEntries]);
 
   async function handleSaveConfig() {
     setBusy(true);
@@ -131,7 +216,7 @@ function App() {
     <main className="app-frame">
       <aside className="tab-rail" aria-label="主导航">
         <div className="brand">
-          <div className="brand-mark">M</div>
+          <img className="brand-mark" src={appIcon} alt="" aria-hidden="true" />
           <div>
             <h1>MindBack</h1>
             <p>回神</p>
@@ -183,7 +268,12 @@ function App() {
                 <button onClick={handleStart} disabled={isBusy} type="button">
                   开始记录
                 </button>
-                <button onClick={handleStop} disabled={isBusy} type="button">
+                <button
+                  className="secondary"
+                  onClick={handleStop}
+                  disabled={isBusy}
+                  type="button"
+                >
                   停止
                 </button>
               </div>
@@ -202,34 +292,82 @@ function App() {
                 </div>
                 {entries.length === 0 ? (
                   <div className="empty-state">
+                    <img className="empty-icon" src={appIcon} alt="" aria-hidden="true" />
                     <strong>还没有记录</strong>
-                    <span>点击“记录一次”或开始后台记录后，这里会出现今日时间轴。</span>
+                    <span>点击“记录一次”或开始后台记录后，这里会出现截图预览和时间线。</span>
                   </div>
                 ) : (
-                  <ol className="timeline">
-                    {entries
-                      .slice()
-                      .reverse()
-                      .map((entry) => (
-                        <li key={`${entry.timestamp}-${entry.screenshot_thumb}`}>
-                          <div className="timeline-marker" />
-                          <div className="timeline-main">
-                            <time>{new Date(entry.timestamp).toLocaleString()}</time>
-                            <strong>{entry.intent}</strong>
-                            <p>{entry.reason}</p>
-                            <span>{entry.visible_context}</span>
-                          </div>
-                          <div
+                  <div className="capture-browser">
+                    <div className="capture-grid" aria-label="截图预览">
+                      {timelineEntries.map((entry, index) => {
+                        const isSelected = index === selectedIndex;
+                        const thumbUrl = thumbUrls[entry.screenshot_thumb];
+
+                        return (
+                          <button
                             className={
-                              entry.is_on_project ? "badge good" : "badge warn"
+                              isSelected ? "capture-tile selected" : "capture-tile"
                             }
+                            key={`${entry.timestamp}-${entry.screenshot_thumb}`}
+                            type="button"
+                            onClick={() => setSelectedTimestamp(entry.timestamp)}
+                            aria-pressed={isSelected}
                           >
-                            {entry.is_on_project ? "符合" : "偏离"} ·{" "}
-                            {Math.round(entry.confidence * 100)}%
-                          </div>
-                        </li>
-                      ))}
-                  </ol>
+                            {thumbUrl ? (
+                              <img src={thumbUrl} alt="" aria-hidden="true" />
+                            ) : (
+                              <span className="capture-placeholder" aria-hidden="true" />
+                            )}
+                            <span className="capture-time">
+                              {formatEntryTime(entry.timestamp)}
+                            </span>
+                            <span
+                              className={entry.is_on_project ? "status-dot good" : "status-dot warn"}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="timeline-picker">
+                      <div className="timeline-rule" aria-hidden="true">
+                        {timelineEntries.map((entry, index) => (
+                          <button
+                            className={
+                              index === selectedIndex ? "timeline-tick selected" : "timeline-tick"
+                            }
+                            key={`${entry.timestamp}-tick`}
+                            type="button"
+                            onClick={() => setSelectedTimestamp(entry.timestamp)}
+                            aria-label={`选择 ${formatEntryTime(entry.timestamp)} 的记录`}
+                          />
+                        ))}
+                      </div>
+                      <input
+                        aria-label="选择时间线记录"
+                        className="timeline-range"
+                        type="range"
+                        min="0"
+                        max={Math.max(timelineEntries.length - 1, 0)}
+                        value={selectedIndex}
+                        onChange={(event) =>
+                          setSelectedTimestamp(
+                            timelineEntries[Number(event.target.value)]?.timestamp ?? null,
+                          )
+                        }
+                      />
+                      <div className="timeline-labels" aria-hidden="true">
+                        <span>{formatEntryTime(timelineEntries[0].timestamp)}</span>
+                        <strong>{formatEntryTime(selectedEntry?.timestamp ?? "")}</strong>
+                        <span>
+                          {formatEntryTime(
+                            timelineEntries[timelineEntries.length - 1].timestamp,
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </section>
 
@@ -255,6 +393,26 @@ function App() {
                   </div>
                 </dl>
                 <div className="summary-card">
+                  <span>选中记录</span>
+                  {selectedEntry ? (
+                    <>
+                      <strong>{selectedEntry.intent}</strong>
+                      <p>{selectedEntry.reason}</p>
+                      <small>{selectedEntry.visible_context}</small>
+                      <div
+                        className={
+                          selectedEntry.is_on_project ? "badge good" : "badge warn"
+                        }
+                      >
+                        {selectedEntry.is_on_project ? "符合" : "偏离"} ·{" "}
+                        {Math.round(selectedEntry.confidence * 100)}%
+                      </div>
+                    </>
+                  ) : (
+                    <strong>等待记录</strong>
+                  )}
+                </div>
+                <div className="summary-card compact">
                   <span>当前模型</span>
                   <strong>{config.model}</strong>
                 </div>

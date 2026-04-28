@@ -29,6 +29,10 @@ export function listTodayEntries() {
   return invoke<LogEntry[]>("list_today_entries");
 }
 
+export function getTodayThumbnail(screenshotThumb: string) {
+  return invoke<string>("get_today_thumbnail", { screenshotThumb });
+}
+
 export function generateSummary() {
   return invoke<string>("generate_summary");
 }

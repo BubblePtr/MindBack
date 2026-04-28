@@ -1,7 +1,7 @@
 use std::{
     fs::{self, OpenOptions},
     io::{BufRead, BufReader, Write},
-    path::PathBuf,
+    path::{Component, Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
@@ -79,6 +79,20 @@ impl Storage {
 
     pub fn list_today_entries(&self) -> Result<Vec<LogEntry>> {
         self.list_entries_for(Local::now().date_naive())
+    }
+
+    pub fn read_today_thumb(&self, relative_path: &str) -> Result<Vec<u8>> {
+        let relative_path = Path::new(relative_path);
+        if relative_path.as_os_str().is_empty()
+            || relative_path
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            anyhow::bail!("invalid screenshot thumbnail path");
+        }
+
+        let path = self.today_dir()?.join(relative_path);
+        fs::read(&path).with_context(|| format!("failed to read {}", path.display()))
     }
 
     pub fn list_entries_for(&self, date: NaiveDate) -> Result<Vec<LogEntry>> {

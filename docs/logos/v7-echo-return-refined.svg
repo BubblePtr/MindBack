@@ -1,0 +1,16 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <g fill="none" stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Outer layer: rounded square with small gap opening at left -->
+    <path d="M 36 20 L 64 20 Q 80 20, 80 36 L 80 64 Q 80 80, 64 80 L 36 80 Q 20 80, 20 64 L 20 42" stroke-width="2.5"/>
+    <!-- Middle layer: slightly rotated -->
+    <g transform="rotate(3, 50, 50)">
+      <rect x="28" y="28" width="44" height="44" rx="12" stroke-width="2" opacity="0.55"/>
+    </g>
+    <!-- Inner layer -->
+    <rect x="38" y="38" width="24" height="24" rx="8" stroke-width="1.5" opacity="0.3"/>
+    <!-- Center core -->
+    <circle cx="50" cy="50" r="4" fill="#1A1A1A" stroke="none"/>
+    <!-- Gateway dot at the opening -->
+    <circle cx="18" cy="42" r="2.5" fill="#1A1A1A" stroke="none"/>
+  </g>
+</svg>

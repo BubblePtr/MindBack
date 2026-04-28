@@ -28,6 +28,7 @@ pub fn run() {
             commands::stop_recording,
             commands::record_once,
             commands::list_today_entries,
+            commands::get_today_thumbnail,
             commands::generate_summary,
         ])
         .run(tauri::generate_context!())
