@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "MindBack",
         "width": 1040,
         "height": 720,

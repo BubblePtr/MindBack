@@ -4,6 +4,7 @@ mod commands;
 mod models;
 mod recognition;
 mod recorder;
+mod resident;
 mod storage;
 
 use app_state::AppState;
@@ -15,8 +16,10 @@ pub fn run() {
         .setup(|app| {
             let state = AppState::new()?;
             app.manage(state);
+            resident::setup(app)?;
             Ok(())
         })
+        .on_window_event(resident::handle_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::save_config,

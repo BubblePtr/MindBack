@@ -1,9 +1,4 @@
-use std::{
-    sync::atomic::{AtomicBool, Ordering},
-    sync::{Arc, Mutex},
-    thread,
-    time::Duration,
-};
+use std::sync::atomic::Ordering;
 
 use chrono::Local;
 use tauri::State;
@@ -12,7 +7,6 @@ use crate::{
     app_state::AppState,
     models::{AppConfig, AppStatus, LogEntry},
     recorder,
-    storage::Storage,
 };
 
 fn to_command_error(error: impl std::fmt::Display) -> String {
@@ -47,19 +41,13 @@ pub fn get_status(state: State<'_, AppState>) -> Result<AppStatus, String> {
 
 #[tauri::command]
 pub fn start_recording(state: State<'_, AppState>) -> Result<AppStatus, String> {
-    state.recording.store(true, Ordering::SeqCst);
-    ensure_recording_worker(
-        state.storage.clone(),
-        Arc::clone(&state.recording),
-        Arc::clone(&state.worker_running),
-        Arc::clone(&state.last_error),
-    );
+    state.start_recording_worker();
     get_status(state)
 }
 
 #[tauri::command]
 pub fn stop_recording(state: State<'_, AppState>) -> Result<AppStatus, String> {
-    state.recording.store(false, Ordering::SeqCst);
+    state.stop_recording_worker();
     get_status(state)
 }
 
@@ -86,46 +74,4 @@ pub fn generate_summary(state: State<'_, AppState>) -> Result<String, String> {
         .write_today_summary()
         .map_err(to_command_error)?;
     Ok(path.display().to_string())
-}
-
-fn ensure_recording_worker(
-    storage: Storage,
-    recording: Arc<AtomicBool>,
-    worker_running: Arc<AtomicBool>,
-    last_error: Arc<Mutex<Option<String>>>,
-) {
-    if worker_running.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
-    thread::spawn(move || {
-        while recording.load(Ordering::SeqCst) {
-            let interval_seconds = match storage.read_config() {
-                Ok(config) => {
-                    let interval = config.interval_seconds.clamp(10, 3600);
-                    if let Err(error) = recorder::record_once(&storage, &config) {
-                        if let Ok(mut last_error) = last_error.lock() {
-                            *last_error = Some(error.to_string());
-                        }
-                    }
-                    interval
-                }
-                Err(error) => {
-                    if let Ok(mut last_error) = last_error.lock() {
-                        *last_error = Some(error.to_string());
-                    }
-                    60
-                }
-            };
-
-            for _ in 0..interval_seconds {
-                if !recording.load(Ordering::SeqCst) {
-                    break;
-                }
-                thread::sleep(Duration::from_secs(1));
-            }
-        }
-
-        worker_running.store(false, Ordering::SeqCst);
-    });
 }
