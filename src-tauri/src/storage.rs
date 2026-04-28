@@ -26,7 +26,8 @@ impl Storage {
         let storage = Self {
             base_dir: base_dir.into(),
         };
-        fs::create_dir_all(&storage.base_dir).context("failed to create MindBack data directory")?;
+        fs::create_dir_all(&storage.base_dir)
+            .context("failed to create MindBack data directory")?;
         Ok(storage)
     }
 
@@ -40,7 +41,8 @@ impl Storage {
             return Ok(AppConfig::default());
         }
 
-        let bytes = fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+        let bytes =
+            fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
         let config = serde_json::from_slice(&bytes)
             .with_context(|| format!("failed to parse {}", path.display()))?;
         Ok(config)
@@ -58,7 +60,10 @@ impl Storage {
     }
 
     pub fn day_dir(&self, date: NaiveDate) -> Result<PathBuf> {
-        let day_dir = self.base_dir.join("days").join(date.format("%Y-%m-%d").to_string());
+        let day_dir = self
+            .base_dir
+            .join("days")
+            .join(date.format("%Y-%m-%d").to_string());
         fs::create_dir_all(day_dir.join("thumbs"))?;
         Ok(day_dir)
     }
@@ -118,7 +123,11 @@ impl Storage {
             content.push_str(&format!(
                 "- {} | {} | {}% | {}\n",
                 entry.timestamp.format("%H:%M:%S"),
-                if entry.is_on_project { "符合" } else { "偏离" },
+                if entry.is_on_project {
+                    "符合"
+                } else {
+                    "偏离"
+                },
                 (entry.confidence * 100.0).round() as u8,
                 entry.intent
             ));

@@ -16,8 +16,9 @@ impl RecognitionService {
             intent: format!("正在推进 {project}"),
             is_on_project: true,
             confidence: 0.8,
-            reason: "当前 MVP 使用本地识别接口的确定性结果，真实 MLX-VLM 识别将在 worker 接入后替换。"
-                .to_string(),
+            reason:
+                "当前 MVP 使用本地识别接口的确定性结果，真实 MLX-VLM 识别将在 worker 接入后替换。"
+                    .to_string(),
             visible_context: "MindBack 本地记录闭环 smoke path".to_string(),
         }
     }

@@ -38,6 +38,7 @@ mod tests {
 
     #[test]
     fn record_once_writes_entry_and_thumbnail() {
+        std::env::set_var("MINDBACK_SIMULATE_CAPTURE", "1");
         let dir = tempdir().unwrap();
         let storage = Storage::new(dir.path()).unwrap();
         let config = AppConfig {
@@ -50,6 +51,10 @@ mod tests {
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].intent, entry.intent);
-        assert!(storage.today_dir().unwrap().join(entry.screenshot_thumb).exists());
+        assert!(storage
+            .today_dir()
+            .unwrap()
+            .join(entry.screenshot_thumb)
+            .exists());
     }
 }
