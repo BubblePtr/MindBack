@@ -8,6 +8,7 @@ use crate::{
     app_state::AppState,
     models::{AppConfig, AppStatus, LogEntry},
     recorder,
+    summary::SummaryService,
 };
 
 fn to_command_error(error: impl std::fmt::Display) -> String {
@@ -90,4 +91,28 @@ pub fn generate_summary(state: State<'_, AppState>) -> Result<String, String> {
         .write_today_summary()
         .map_err(to_command_error)?;
     Ok(path.display().to_string())
+}
+
+#[tauri::command]
+pub fn get_today_summary_blocks(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::models::SummaryTimeBlock>, String> {
+    SummaryService::new(&state.storage)
+        .today_summary_blocks()
+        .map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn summarize_previous_half_hour(
+    state: State<'_, AppState>,
+) -> Result<Option<crate::models::SummaryTimeBlock>, String> {
+    let config = state.storage.read_config().map_err(to_command_error)?;
+    SummaryService::new(&state.storage)
+        .summarize_previous_half_hour(&config)
+        .map_err(|error| {
+            if let Ok(mut last_error) = state.last_error.lock() {
+                *last_error = Some(error.to_string());
+            }
+            error.to_string()
+        })
 }

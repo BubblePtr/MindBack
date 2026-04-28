@@ -7,7 +7,10 @@ use std::{
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate};
 
-use crate::models::{AppConfig, LogEntry};
+use crate::{
+    models::{AppConfig, LogEntry},
+    summary::SummaryService,
+};
 
 #[derive(Debug, Clone)]
 pub struct Storage {
@@ -115,42 +118,7 @@ impl Storage {
     }
 
     pub fn write_today_summary(&self) -> Result<PathBuf> {
-        let today = Local::now().date_naive();
-        let entries = self.list_entries_for(today)?;
-        let day_dir = self.day_dir(today)?;
-        let path = day_dir.join("summary.md");
-        let on_project = entries.iter().filter(|entry| entry.is_on_project).count();
-        let ratio = if entries.is_empty() {
-            0
-        } else {
-            (on_project * 100) / entries.len()
-        };
-
-        let mut content = String::new();
-        content.push_str("# MindBack 今日监督日志\n\n");
-        content.push_str(&format!("- 日期：{}\n", today.format("%Y-%m-%d")));
-        content.push_str(&format!("- 总记录数：{}\n", entries.len()));
-        content.push_str(&format!("- 符合今日项目：{}%\n\n", ratio));
-        content.push_str("## 时间线\n\n");
-
-        for entry in entries {
-            content.push_str(&format!(
-                "- {} | {} | {}% | {}\n",
-                entry.timestamp.format("%H:%M:%S"),
-                if entry.is_on_project {
-                    "符合"
-                } else {
-                    "偏离"
-                },
-                (entry.confidence * 100.0).round() as u8,
-                entry.intent
-            ));
-            content.push_str(&format!("  - 原因：{}\n", entry.reason));
-            content.push_str(&format!("  - 缩略图：{}\n", entry.screenshot_thumb));
-        }
-
-        fs::write(&path, content)?;
-        Ok(path)
+        SummaryService::new(self).write_today_summary()
     }
 }
 
@@ -179,6 +147,9 @@ mod tests {
             project_description: "Build the first loop".to_string(),
             interval_seconds: 30,
             model: "mlx-community/gemma-4-e4b-it-4bit".to_string(),
+            summary_model: "deepseek-chat".to_string(),
+            summary_provider: "deepseek".to_string(),
+            summary_enabled: true,
         };
 
         storage.save_config(&config).unwrap();

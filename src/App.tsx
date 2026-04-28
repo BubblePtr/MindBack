@@ -4,14 +4,16 @@ import {
   generateSummary,
   getConfig,
   getStatus,
+  getTodaySummaryBlocks,
   getTodayThumbnail,
   listTodayEntries,
   recordOnce,
   saveConfig,
   startRecording,
   stopRecording,
+  summarizePreviousHalfHour,
 } from "./lib/api";
-import type { AppConfig, AppStatus, LogEntry } from "./lib/types";
+import type { AppConfig, AppStatus, LogEntry, SummaryTimeBlock } from "./lib/types";
 import appIcon from "./assets/mindback-app-icon.png";
 
 const MODELS = [
@@ -25,6 +27,9 @@ const DEFAULT_CONFIG: AppConfig = {
   project_description: "",
   interval_seconds: 60,
   model: MODELS[0],
+  summary_model: "deepseek-chat",
+  summary_provider: "deepseek",
+  summary_enabled: true,
 };
 
 type ActiveTab = "home" | "settings";
@@ -88,6 +93,32 @@ function summarizeBucket(key: string, bucketEntries: LogEntry[]): TimelineBucket
   };
 }
 
+function summaryStatusLabel(status: SummaryTimeBlock["status"]) {
+  switch (status) {
+    case "on_project":
+      return "符合";
+    case "off_project":
+      return "偏离";
+    case "uncertain":
+      return "不确定";
+    case "insufficient_data":
+      return "无数据";
+  }
+}
+
+function mergeSummaryBlocks(
+  blocks: SummaryTimeBlock[],
+  refreshedBlock: SummaryTimeBlock | null,
+) {
+  if (!refreshedBlock) return blocks;
+
+  const byRange = new Map(blocks.map((block) => [`${block.start}-${block.end}`, block]));
+  byRange.set(`${refreshedBlock.start}-${refreshedBlock.end}`, refreshedBlock);
+  return [...byRange.values()].sort((left, right) =>
+    `${left.start}-${left.end}`.localeCompare(`${right.start}-${right.end}`),
+  );
+}
+
 function formatError(error: unknown) {
   const text = String(error);
   if (text.includes("Failed to fetch")) {
@@ -104,6 +135,7 @@ function App() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [summaryBlocks, setSummaryBlocks] = useState<SummaryTimeBlock[]>([]);
   const [selectedBucketKey, setSelectedBucketKey] = useState<string | null>(null);
   const [detailEntry, setDetailEntry] = useState<LogEntry | null>(null);
   const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
@@ -144,6 +176,30 @@ function App() {
   const selectedBucket = timelineBuckets[selectedBucketIndex] ?? null;
   const visibleEntries = selectedBucket?.entries ?? [];
 
+  const summaryBlockByRange = useMemo(() => {
+    const blocks = new Map<string, SummaryTimeBlock>();
+    for (const block of summaryBlocks) {
+      blocks.set(`${block.start} - ${block.end}`, block);
+    }
+    return blocks;
+  }, [summaryBlocks]);
+
+  const summarySections = useMemo(
+    () =>
+      timelineBuckets.map((bucket) => {
+        const block = summaryBlockByRange.get(bucket.range);
+        if (!block) return bucket;
+        const evidence = block.evidence.slice(0, 2).join(" ");
+        const label = summaryStatusLabel(block.status);
+        return {
+          ...bucket,
+          title: block.summary,
+          detail: `${label}，${block.record_count} 条记录，${block.on_project_ratio}% 符合今日项目${evidence ? `。${evidence}` : "。"}`,
+        };
+      }),
+    [summaryBlockByRange, timelineBuckets],
+  );
+
   const onProjectRatio = useMemo(() => {
     if (entries.length === 0) return "0%";
     const onProject = entries.filter((entry) => entry.is_on_project).length;
@@ -158,16 +214,19 @@ function App() {
 
   const refresh = useCallback(async (options: { syncConfig?: boolean } = {}) => {
     const syncConfig = options.syncConfig ?? activeTabRef.current !== "settings";
-    const [nextConfig, nextStatus, nextEntries] = await Promise.all([
+    const [nextConfig, nextStatus, nextEntries, nextBlocks, refreshedBlock] = await Promise.all([
       getConfig(),
       getStatus(),
       listTodayEntries(),
+      getTodaySummaryBlocks(),
+      summarizePreviousHalfHour().catch(() => null),
     ]);
     if (syncConfig) {
       setConfig(nextConfig);
     }
     setStatus(nextStatus);
     setEntries(nextEntries);
+    setSummaryBlocks(mergeSummaryBlocks(nextBlocks, refreshedBlock));
   }, []);
 
   const refreshInBackground = useCallback(
@@ -321,6 +380,7 @@ function App() {
     setBusy(true);
     try {
       const path = await generateSummary();
+      setSummaryBlocks(await getTodaySummaryBlocks());
       setMessage(`日报已生成：${path}`);
     } catch (error) {
       setMessage(formatError(error));
@@ -486,14 +546,14 @@ function App() {
                     <h3 id="summary-title">时间段摘要</h3>
                   </div>
                 </div>
-                {timelineBuckets.length === 0 ? (
+                {summarySections.length === 0 ? (
                   <div className="summary-empty">
                     <strong>等待摘要</strong>
                     <p>开始记录后，这里会按时间段汇总你在做什么。</p>
                   </div>
                 ) : (
                   <div className="summary-list">
-                    {timelineBuckets.map((section) => (
+                    {summarySections.map((section) => (
                       <article className="summary-entry" key={section.range}>
                         <time>{section.range}</time>
                         <strong>{section.title}</strong>

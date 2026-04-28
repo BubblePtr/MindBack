@@ -9,7 +9,7 @@ use base64::{engine::general_purpose, Engine as _};
 use chrono::Local;
 use serde::Serialize;
 
-use crate::{app_state::AppState, models::AppStatus, recorder};
+use crate::{app_state::AppState, models::AppStatus, recorder, summary::SummaryService};
 
 const DEV_BRIDGE_ADDR: &str = "127.0.0.1:1421";
 
@@ -161,6 +161,18 @@ fn handle_request(state: &AppState, request: DevBridgeRequest) -> Result<HttpRes
                 .write_today_summary()
                 .map_err(to_bridge_error)?;
             json_response(&path.display().to_string())
+        }
+        ("GET", "/api/summary-blocks") => json_response(
+            &SummaryService::new(&state.storage)
+                .today_summary_blocks()
+                .map_err(to_bridge_error)?,
+        ),
+        ("POST", "/api/summarize-previous-half-hour") => {
+            let config = state.storage.read_config().map_err(to_bridge_error)?;
+            let block = SummaryService::new(&state.storage)
+                .summarize_previous_half_hour(&config)
+                .map_err(to_bridge_error)?;
+            json_response(&block)
         }
         _ => Ok(HttpResponse::text(404, "not found")),
     }
@@ -353,5 +365,21 @@ mod tests {
 
         assert_eq!(response.status_code, 200);
         assert!(response.body.contains("\"project_name\":\"MindBack MVP\""));
+    }
+
+    #[test]
+    fn summary_blocks_route_returns_json_blocks() {
+        let dir = tempdir().unwrap();
+        let storage = Storage::new(dir.path()).unwrap();
+        let state = AppState::new_with_storage(storage);
+
+        let response = handle_request(
+            &state,
+            DevBridgeRequest::new("GET", "/api/summary-blocks", ""),
+        )
+        .unwrap();
+
+        assert_eq!(response.status_code, 200);
+        assert_eq!(response.body, "[]");
     }
 }

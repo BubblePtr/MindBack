@@ -9,6 +9,7 @@ mod recognition;
 mod recorder;
 mod resident;
 mod storage;
+mod summary;
 
 use app_state::AppState;
 use tauri::Manager;
@@ -34,6 +35,8 @@ pub fn run() {
             commands::record_once,
             commands::list_today_entries,
             commands::get_today_thumbnail,
+            commands::get_today_summary_blocks,
+            commands::summarize_previous_half_hour,
             commands::generate_summary,
         ])
         .run(tauri::generate_context!())

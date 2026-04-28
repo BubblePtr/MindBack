@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig, AppStatus, LogEntry } from "./types";
+import type { AppConfig, AppStatus, LogEntry, SummaryTimeBlock } from "./types";
 
 const DEV_BRIDGE_BASE_URL = "http://127.0.0.1:1421/api";
 
@@ -11,7 +11,9 @@ type DevBridgePath =
   | "/record-once"
   | "/today-entries"
   | "/today-thumbnail"
-  | "/summary";
+  | "/summary"
+  | "/summary-blocks"
+  | "/summarize-previous-half-hour";
 
 function isTauriRuntime() {
   return (
@@ -122,4 +124,23 @@ export function generateSummary() {
   }
 
   return invoke<string>("generate_summary");
+}
+
+export function getTodaySummaryBlocks() {
+  if (!isTauriRuntime()) {
+    return requestDevBridge<SummaryTimeBlock[]>("/summary-blocks");
+  }
+
+  return invoke<SummaryTimeBlock[]>("get_today_summary_blocks");
+}
+
+export function summarizePreviousHalfHour() {
+  if (!isTauriRuntime()) {
+    return requestDevBridge<SummaryTimeBlock | null>(
+      "/summarize-previous-half-hour",
+      { method: "POST" },
+    );
+  }
+
+  return invoke<SummaryTimeBlock | null>("summarize_previous_half_hour");
 }
