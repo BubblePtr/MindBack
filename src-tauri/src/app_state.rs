@@ -61,7 +61,9 @@ fn ensure_recording_worker(
             let interval_seconds = match storage.read_config() {
                 Ok(config) => {
                     let interval = config.interval_seconds.clamp(10, 3600);
-                    if let Err(error) = recorder::record_once(&storage, &config) {
+                    if let Err(error) =
+                        recorder::record_once_if_display_available(&storage, &config)
+                    {
                         if let Ok(mut last_error) = last_error.lock() {
                             *last_error = Some(error.to_string());
                         }

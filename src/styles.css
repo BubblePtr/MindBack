@@ -410,6 +410,7 @@ button.secondary:hover {
   flex: 1 1 auto;
   grid-template-rows: auto minmax(0, 1fr) 64px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .bucket-heading {
@@ -438,9 +439,11 @@ button.secondary:hover {
   align-content: start;
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(132px, 168px));
+  justify-content: start;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 1px 2px 14px;
 }
 
@@ -950,6 +953,49 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .capture-browser {
+    grid-template-rows: auto minmax(220px, 1fr) 58px;
+  }
+
+  .capture-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+    padding-bottom: 10px;
+  }
+
+  .capture-tile {
+    aspect-ratio: auto;
+    grid-template-rows: minmax(112px, 1fr) 32px;
+    min-height: 154px;
+    position: relative;
+  }
+
+  .capture-tile img,
+  .capture-placeholder {
+    grid-row: 1;
+    height: 100%;
+    inset: auto;
+    object-fit: contain;
+    position: relative;
+    width: 100%;
+  }
+
+  .capture-time {
+    align-items: center;
+    align-self: stretch;
+    background: var(--paper);
+    border: 0;
+    border-radius: 0;
+    border-top: 1px solid var(--line);
+    bottom: auto;
+    display: flex;
+    font-size: 12px;
+    justify-content: center;
+    left: auto;
+    padding: 0 8px;
+    position: relative;
+  }
+
   .summary-panel {
     display: none;
   }
@@ -992,6 +1038,19 @@ textarea {
 
   .panel-heading {
     flex-direction: column;
+  }
+
+  .capture-browser {
+    grid-template-rows: auto minmax(180px, 1fr) 54px;
+  }
+
+  .capture-grid {
+    gap: 10px;
+  }
+
+  .capture-tile {
+    grid-template-rows: minmax(96px, 1fr) 30px;
+    min-height: 132px;
   }
 
   .panel-heading button {

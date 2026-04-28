@@ -108,7 +108,10 @@ fn handle_request(state: &AppState, request: DevBridgeRequest) -> Result<HttpRes
         }
         ("POST", "/api/config") => {
             let config = serde_json::from_str(&request.body).map_err(|error| error.to_string())?;
-            state.storage.save_config(&config).map_err(to_bridge_error)?;
+            state
+                .storage
+                .save_config(&config)
+                .map_err(to_bridge_error)?;
             json_response(&config)
         }
         ("GET", "/api/status") => json_response(&status_for_state(state)?),
@@ -293,10 +296,8 @@ fn percent_decode(value: &str) -> String {
             let first = bytes.next();
             let second = bytes.next();
             if let (Some(first), Some(second)) = (first, second) {
-                if let Ok(hex) = u8::from_str_radix(
-                    &String::from_utf8_lossy(&[first, second]),
-                    16,
-                ) {
+                if let Ok(hex) = u8::from_str_radix(&String::from_utf8_lossy(&[first, second]), 16)
+                {
                     decoded.push(hex as char);
                     continue;
                 }
@@ -324,9 +325,10 @@ mod tests {
 
     #[test]
     fn parses_query_value_with_encoded_slash() {
-        let request =
-            parse_http_request("GET /api/today-thumbnail?screenshot_thumb=thumbs%2Fone.jpg HTTP/1.1\r\n\r\n")
-                .unwrap();
+        let request = parse_http_request(
+            "GET /api/today-thumbnail?screenshot_thumb=thumbs%2Fone.jpg HTTP/1.1\r\n\r\n",
+        )
+        .unwrap();
 
         assert_eq!(
             request.query_value("screenshot_thumb"),

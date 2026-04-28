@@ -1,5 +1,6 @@
 mod app_state;
 mod capture;
+mod capture_guard;
 mod commands;
 #[cfg(debug_assertions)]
 mod dev_bridge;

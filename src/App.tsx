@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { House, SlidersHorizontal } from "@phosphor-icons/react";
 import {
   generateSummary,
@@ -109,6 +109,8 @@ function App() {
   const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>("");
   const [isBusy, setBusy] = useState(false);
+  const activeTabRef = useRef(activeTab);
+  const refreshInFlightRef = useRef(false);
 
   const timelineEntries = useMemo(
     () =>
@@ -150,20 +152,60 @@ function App() {
 
   const detailThumbUrl = detailEntry ? thumbUrls[detailEntry.screenshot_thumb] : "";
 
-  async function refresh() {
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  const refresh = useCallback(async (options: { syncConfig?: boolean } = {}) => {
+    const syncConfig = options.syncConfig ?? activeTabRef.current !== "settings";
     const [nextConfig, nextStatus, nextEntries] = await Promise.all([
       getConfig(),
       getStatus(),
       listTodayEntries(),
     ]);
-    setConfig(nextConfig);
+    if (syncConfig) {
+      setConfig(nextConfig);
+    }
     setStatus(nextStatus);
     setEntries(nextEntries);
-  }
+  }, []);
+
+  const refreshInBackground = useCallback(
+    async (options: { syncConfig?: boolean } = {}) => {
+      if (refreshInFlightRef.current) return;
+      refreshInFlightRef.current = true;
+      try {
+        await refresh(options);
+      } catch (error) {
+        setMessage(formatError(error));
+      } finally {
+        refreshInFlightRef.current = false;
+      }
+    },
+    [refresh],
+  );
 
   useEffect(() => {
-    refresh().catch((error) => setMessage(formatError(error)));
-  }, []);
+    void refreshInBackground({ syncConfig: true });
+  }, [refreshInBackground]);
+
+  useEffect(() => {
+    const refreshVisiblePage = () => {
+      if (document.visibilityState === "visible") {
+        void refreshInBackground();
+      }
+    };
+
+    const intervalId = window.setInterval(refreshVisiblePage, 2000);
+    window.addEventListener("focus", refreshVisiblePage);
+    document.addEventListener("visibilitychange", refreshVisiblePage);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshVisiblePage);
+      document.removeEventListener("visibilitychange", refreshVisiblePage);
+    };
+  }, [refreshInBackground]);
 
   useEffect(() => {
     if (timelineBuckets.length === 0) {
@@ -303,20 +345,20 @@ function App() {
             type="button"
             onClick={() => setActiveTab("home")}
             aria-current={activeTab === "home" ? "page" : undefined}
-            title="Home"
+            title="首页"
           >
             <House size={22} weight="regular" aria-hidden="true" />
-            <span>Home</span>
+            <span>首页</span>
           </button>
           <button
             className={activeTab === "settings" ? "tab active" : "tab"}
             type="button"
             onClick={() => setActiveTab("settings")}
             aria-current={activeTab === "settings" ? "page" : undefined}
-            title="Settings"
+            title="设置"
           >
             <SlidersHorizontal size={22} weight="regular" aria-hidden="true" />
-            <span>Settings</span>
+            <span>设置</span>
           </button>
         </nav>
 
@@ -525,7 +567,7 @@ function App() {
           <>
             <header className="workspace-header compact">
               <div>
-                <span className="eyebrow">Settings</span>
+                <span className="eyebrow">设置</span>
                 <h2>设置</h2>
                 <p>配置今日项目、截图间隔和本地识别模型。</p>
               </div>

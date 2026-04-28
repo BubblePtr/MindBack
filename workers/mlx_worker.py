@@ -33,7 +33,7 @@ def unavailable(reason: str) -> int:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run MindBack MLX-VLM recognition")
+    parser = argparse.ArgumentParser(description="运行 MindBack MLX-VLM 本地识别")
     parser.add_argument("--model", required=True)
     parser.add_argument("--project", required=True)
     parser.add_argument("--image", required=True)
@@ -59,18 +59,19 @@ def main() -> int:
     args = parse_args()
     image_path = Path(args.image).expanduser()
     if not image_path.exists():
-        return unavailable(f"image not found: {image_path}")
+        return unavailable(f"图片不存在：{image_path}")
 
     try:
         from mlx_vlm import apply_chat_template, generate, load  # type: ignore
     except Exception as exc:  # pragma: no cover - depends on local MLX install
-        return unavailable(f"mlx-vlm is not available: {exc}")
+        return unavailable(f"mlx-vlm 不可用：{exc}")
 
     prompt = (
         "你是 MindBack 的本地监督日志识别器。"
         "请判断截图中的当前行为是否符合今日项目，并只输出 JSON。"
         f"今日项目：{args.project}\n"
         "字段必须包含 intent, is_on_project, confidence, reason, visible_context。"
+        "所有字段值必须使用简体中文，除非截图中出现必须保留的代码、命令、文件名或专有名词。"
     )
 
     try:
@@ -90,7 +91,7 @@ def main() -> int:
             temperature=0.0,
         )
     except Exception as exc:  # pragma: no cover - depends on local MLX/model state
-        return unavailable(f"mlx-vlm recognition failed: {exc}")
+        return unavailable(f"mlx-vlm 识别失败：{exc}")
 
     text = getattr(response, "text", str(response)).strip()
     try:

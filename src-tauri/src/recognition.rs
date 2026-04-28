@@ -9,16 +9,12 @@ pub struct RecognitionService;
 
 impl RecognitionService {
     pub fn recognize(image_path: &Path, config: &AppConfig) -> RecognitionResult {
-        if std::env::var("MINDBACK_ENABLE_MLX").as_deref() == Ok("1") {
-            return Self::recognize_with_worker(image_path, config);
-        }
-
-        Self::placeholder_result(config)
+        Self::recognize_with_worker(image_path, config)
     }
 
     fn recognize_with_worker(image_path: &Path, config: &AppConfig) -> RecognitionResult {
         let python = std::env::var("MINDBACK_MLX_PYTHON")
-            .unwrap_or_else(|_| default_mlx_python_path().display().to_string());
+            .unwrap_or_else(|_| default_mlx_python_command().display().to_string());
         let worker_path = std::env::var("MINDBACK_WORKER_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
@@ -68,25 +64,15 @@ impl RecognitionService {
             )),
         }
     }
+}
 
-    fn placeholder_result(config: &AppConfig) -> RecognitionResult {
-        let project = if config.project_name.trim().is_empty() {
-            "今日项目".to_string()
-        } else {
-            config.project_name.clone()
-        };
-
-        RecognitionResult {
-            intent: format!("正在推进 {project}"),
-            is_on_project: true,
-            confidence: 0.8,
-            reason:
-                "当前 MVP 使用本地识别接口的确定性结果，真实 MLX-VLM 识别将在 worker 接入后替换。"
-                    .to_string(),
-            visible_context: "MindBack 本地记录闭环 smoke path".to_string(),
-            error: Some("mlx_worker_disabled".to_string()),
-        }
+fn default_mlx_python_command() -> PathBuf {
+    let app_venv_python = default_mlx_python_path();
+    if app_venv_python.exists() {
+        return app_venv_python;
     }
+
+    PathBuf::from("python3")
 }
 
 fn default_mlx_python_path() -> PathBuf {
@@ -123,7 +109,14 @@ fn resolve_model_path(model: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use crate::models::AppConfig;
+
     use super::default_mlx_python_path;
+    use super::RecognitionService;
 
     #[test]
     fn default_worker_python_path_is_persistent_app_data() {
@@ -131,6 +124,31 @@ mod tests {
 
         assert!(path.to_string_lossy().contains("MindBack/venvs/mlx-worker"));
         assert!(!path.starts_with("/tmp"));
+    }
+
+    #[test]
+    fn recognize_uses_worker_by_default() {
+        std::env::remove_var("MINDBACK_ENABLE_MLX");
+        let dir = tempdir().unwrap();
+        let worker_path = dir.path().join("fake_worker.sh");
+        let image_path = dir.path().join("capture.jpg");
+        fs::write(&image_path, "fake image").unwrap();
+        fs::write(
+            &worker_path,
+            "echo '{\"intent\":\"正在查看项目文档\",\"is_on_project\":true,\"confidence\":0.91,\"reason\":\"截图内容与今日项目相关\",\"visible_context\":\"屏幕中显示项目文档\",\"error\":null}'\n",
+        )
+        .unwrap();
+        std::env::set_var("MINDBACK_MLX_PYTHON", "/bin/sh");
+        std::env::set_var("MINDBACK_WORKER_PATH", &worker_path);
+
+        let result = RecognitionService::recognize(&image_path, &AppConfig::default());
+
+        std::env::remove_var("MINDBACK_MLX_PYTHON");
+        std::env::remove_var("MINDBACK_WORKER_PATH");
+
+        assert_eq!(result.intent, "正在查看项目文档");
+        assert_eq!(result.visible_context, "屏幕中显示项目文档");
+        assert_eq!(result.error, None);
     }
 }
 
