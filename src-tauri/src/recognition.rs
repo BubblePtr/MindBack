@@ -18,7 +18,7 @@ impl RecognitionService {
 
     fn recognize_with_worker(image_path: &Path, config: &AppConfig) -> RecognitionResult {
         let python = std::env::var("MINDBACK_MLX_PYTHON")
-            .unwrap_or_else(|_| "/tmp/mindback-mlx-venv/bin/python".to_string());
+            .unwrap_or_else(|_| default_mlx_python_path().display().to_string());
         let worker_path = std::env::var("MINDBACK_WORKER_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
@@ -89,6 +89,16 @@ impl RecognitionService {
     }
 }
 
+fn default_mlx_python_path() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("MindBack")
+        .join("venvs")
+        .join("mlx-worker")
+        .join("bin")
+        .join("python")
+}
+
 fn resolve_model_path(model: &str) -> String {
     if let Ok(path) = std::env::var("MINDBACK_MLX_MODEL_PATH") {
         return path;
@@ -109,6 +119,19 @@ fn resolve_model_path(model: &str) -> String {
     }
 
     model.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::default_mlx_python_path;
+
+    #[test]
+    fn default_worker_python_path_is_persistent_app_data() {
+        let path = default_mlx_python_path();
+
+        assert!(path.to_string_lossy().contains("MindBack/venvs/mlx-worker"));
+        assert!(!path.starts_with("/tmp"));
+    }
 }
 
 fn worker_error(error: String) -> RecognitionResult {
