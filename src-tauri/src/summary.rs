@@ -88,7 +88,7 @@ impl<'a> SummaryService<'a> {
                 continue;
             }
             let block = summarize_window(&config, start, end, &entries);
-            write_cached_summary_block(self.storage, &block)?;
+            write_cached_summary_block_for(self.storage, today, &block)?;
         }
 
         Ok(())
@@ -136,19 +136,22 @@ pub fn summarize_previous_half_hour_at(
     } else {
         summarize_window(config, start, end, &entries)
     };
-    write_cached_summary_block(storage, &block)?;
+    write_cached_summary_block_for(storage, date, &block)?;
 
     Ok(Some(block))
 }
 
-pub fn write_cached_summary_block(storage: &Storage, block: &SummaryTimeBlock) -> Result<()> {
-    let today = Local::now().date_naive();
-    let mut blocks = read_summary_blocks_for(storage, today)?;
+pub fn write_cached_summary_block_for(
+    storage: &Storage,
+    date: NaiveDate,
+    block: &SummaryTimeBlock,
+) -> Result<()> {
+    let mut blocks = read_summary_blocks_for(storage, date)?;
     blocks.retain(|existing| existing.start != block.start || existing.end != block.end);
     blocks.push(block.clone());
     blocks.sort_by(|left, right| left.start.cmp(&right.start).then(left.end.cmp(&right.end)));
 
-    let path = summary_blocks_path(storage, today)?;
+    let path = summary_blocks_path(storage, date)?;
     fs::write(path, serde_json::to_vec_pretty(&blocks)?)?;
     Ok(())
 }
@@ -514,7 +517,7 @@ fn status_label(status: &SummaryBlockStatus) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Local, TimeZone};
+    use chrono::{Datelike, Local, TimeZone};
     use tempfile::tempdir;
 
     use crate::{
@@ -522,13 +525,14 @@ mod tests {
         storage::Storage,
         summary::{
             bucket_start, previous_completed_window, summarize_previous_half_hour_at,
-            write_cached_summary_block, SummaryService,
+            write_cached_summary_block_for, SummaryService,
         },
     };
 
     fn at(hour: u32, minute: u32) -> chrono::DateTime<Local> {
+        let today = Local::now().date_naive();
         Local
-            .with_ymd_and_hms(2026, 4, 28, hour, minute, 0)
+            .with_ymd_and_hms(today.year(), today.month(), today.day(), hour, minute, 0)
             .single()
             .unwrap()
     }
@@ -617,7 +621,7 @@ mod tests {
             at(10, 0),
             &[entry_at(9, 40, "Cached work", true)],
         );
-        write_cached_summary_block(&storage, &cached).unwrap();
+        write_cached_summary_block_for(&storage, at(9, 30).date_naive(), &cached).unwrap();
 
         let block = summarize_previous_half_hour_at(&storage, &AppConfig::default(), at(10, 17))
             .unwrap()
