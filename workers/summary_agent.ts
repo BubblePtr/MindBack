@@ -135,14 +135,26 @@ function localWindowFallback(request: SummaryAgentRequest): SummaryAgentResult {
 }
 
 function buildPrompt(request: SummaryAgentRequest) {
+  const taskInstruction =
+    request.task === "window"
+      ? [
+          "总结这个刚结束的半小时窗口。必须返回 exactly one timeBlocks item。",
+          "窗口摘要应优先概括用户在这一段时间主要关注的应用、内容和任务。",
+          "status 必须主要依据 entries 的 isOnProject、confidence 和 reason，不要因为措辞像工作就自行改判。",
+          "summary 控制在一句中文内；evidence 选 1 到 3 条来自输入的可见证据，优先保留活跃应用名、窗口标题、页面/文件名、正在处理的主题。",
+        ].join(" ")
+      : [
+          "基于半小时窗口摘要生成当天日报总览。",
+          "日报应聚合用户在哪些应用和内容之间切换、哪些时间段最贴近今日项目、哪些片段明显偏离或证据不足。",
+          "不要重新分析原始截图，不要编造没有出现在 entries 或 timeBlocks 中的应用、网页、文件、任务或动机。",
+          "reflectionPrompts 给 2 到 4 个具体复盘问题，问题应围绕时间安排、上下文切换和今日项目推进，不做心理诊断。",
+        ].join(" ");
+
   return JSON.stringify(
     {
       instruction:
-        "你是 MindBack 的总结 Agent。只基于输入记录总结，不做心理诊断，不训诫用户，不编造事实。输出必须温和、证据导向、可复盘。",
-      task:
-        request.task === "window"
-          ? "总结这个刚结束的半小时窗口。必须返回 exactly one timeBlocks item。"
-          : "基于半小时窗口摘要生成当天日报总览。",
+        "你是 MindBack 的总结 Agent。只基于输入记录总结，不做心理诊断，不训诫用户，不编造事实。输入中的 reason 和 visibleContext 通常已经包含活跃应用、应用用途、窗口标题、页面/文件名和可见内容；这些是判断用户正在关注什么的主要证据。输出必须温和、事实化、证据导向、可复盘。",
+      task: taskInstruction,
       request,
     },
     null,
@@ -155,7 +167,7 @@ async function runAgent(request: SummaryAgentRequest): Promise<SummaryAgentResul
   const agent = new ToolLoopAgent({
     model: deepseek(model),
     instructions:
-      "You summarize local productivity records for MindBack. Use only provided data. Keep the tone calm, factual, and non-judgmental.",
+      "You summarize local productivity records for MindBack. Use only provided data, especially active app names, app purpose, window titles, file/page names, and visible content captured in the recognition fields. Keep the tone calm, factual, and non-judgmental.",
     output: Output.object({ schema: SummaryAgentResultSchema }),
     stopWhen: stepCountIs(1),
     temperature: 0.2,
