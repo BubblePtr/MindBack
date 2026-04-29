@@ -15,12 +15,27 @@ import {
 } from "./lib/api";
 import type { AppConfig, AppStatus, LogEntry, SummaryTimeBlock } from "./lib/types";
 import appIcon from "./assets/mindback-app-icon.png";
+import { Button } from "./components/ui/button";
+import { Dialog } from "./components/ui/dialog";
+import { Field, Input, Textarea } from "./components/ui/field";
+import { Select } from "./components/ui/select";
+import { Tabs } from "./components/ui/tabs";
 
 const MODELS = [
   "mlx-community/Qwen3-VL-4B-Instruct-4bit",
   "mlx-community/Qwen3-VL-8B-Instruct-4bit",
   "mlx-community/gemma-4-e4b-it-4bit",
 ];
+
+const INTERVAL_OPTIONS = [30, 60, 120, 300].map((seconds) => ({
+  label: `${seconds} 秒`,
+  value: String(seconds),
+}));
+
+const MODEL_OPTIONS = MODELS.map((model) => ({
+  label: model,
+  value: model,
+}));
 
 const DEFAULT_CONFIG: AppConfig = {
   project_name: "",
@@ -33,12 +48,21 @@ const DEFAULT_CONFIG: AppConfig = {
 };
 
 type ActiveTab = "home" | "settings";
+type SummaryPanelTab = "blocks" | "daily";
 type TimelineBucket = {
   key: string;
   range: string;
   entries: LogEntry[];
   title: string;
   detail: string;
+};
+
+type DailyReportView = {
+  alignmentLabel: string;
+  overview: string;
+  primaryWork: string[];
+  driftNotes: string[];
+  prompts: string[];
 };
 
 function formatEntryTime(timestamp: string) {
@@ -130,8 +154,55 @@ function formatError(error: unknown) {
   return text;
 }
 
+function buildDailyReportView(
+  entries: LogEntry[],
+  blocks: SummaryTimeBlock[],
+  projectName: string,
+  onProjectRatio: string,
+): DailyReportView {
+  if (entries.length === 0) {
+    return {
+      alignmentLabel: "等待记录",
+      overview: "今天还没有可复盘的记录。开始记录后，日报会基于时间段摘要生成。",
+      primaryWork: [],
+      driftNotes: [],
+      prompts: ["今天最重要的一件事是什么？"],
+    };
+  }
+
+  const sortedBlocks = blocks
+    .filter((block) => block.record_count > 0)
+    .sort((left, right) => right.record_count - left.record_count);
+  const primaryWork = sortedBlocks
+    .filter((block) => block.status === "on_project")
+    .slice(0, 3)
+    .map((block) => `${block.start} - ${block.end}：${block.summary}`);
+  const driftNotes = blocks
+    .filter((block) => block.status === "off_project" || block.status === "uncertain")
+    .slice(0, 3)
+    .map((block) => `${block.start} - ${block.end}：${block.summary}`);
+
+  return {
+    alignmentLabel: Number.parseInt(onProjectRatio, 10) >= 80 ? "整体专注" : "需要复盘",
+    overview: `${entries.length} 条记录，${onProjectRatio} 符合今日项目${projectName ? `「${projectName}」` : ""}。`,
+    primaryWork:
+      primaryWork.length > 0
+        ? primaryWork
+        : ["已有记录，但还没有生成稳定的时间段摘要。"],
+    driftNotes:
+      driftNotes.length > 0
+        ? driftNotes
+        : ["暂未发现明显偏离或不确定片段。"],
+    prompts: [
+      "今天最值得保留的工作节奏是什么？",
+      "下一次开始前，哪个上下文可以提前准备好？",
+    ],
+  };
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("home");
+  const [summaryPanelTab, setSummaryPanelTab] = useState<SummaryPanelTab>("blocks");
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
@@ -205,6 +276,17 @@ function App() {
     const onProject = entries.filter((entry) => entry.is_on_project).length;
     return `${Math.round((onProject / entries.length) * 100)}%`;
   }, [entries]);
+
+  const dailyReportView = useMemo(
+    () =>
+      buildDailyReportView(
+        entries,
+        summaryBlocks,
+        config.project_name,
+        onProjectRatio,
+      ),
+    [config.project_name, entries, onProjectRatio, summaryBlocks],
+  );
 
   const detailThumbUrl = detailEntry ? thumbUrls[detailEntry.screenshot_thumb] : "";
 
@@ -400,26 +482,26 @@ function App() {
         </div>
 
         <nav className="tabs">
-          <button
+          <Button
             className={activeTab === "home" ? "tab active" : "tab"}
-            type="button"
+            variant="plain"
             onClick={() => setActiveTab("home")}
             aria-current={activeTab === "home" ? "page" : undefined}
             title="首页"
           >
             <House size={22} weight="regular" aria-hidden="true" />
             <span>首页</span>
-          </button>
-          <button
+          </Button>
+          <Button
             className={activeTab === "settings" ? "tab active" : "tab"}
-            type="button"
+            variant="plain"
             onClick={() => setActiveTab("settings")}
             aria-current={activeTab === "settings" ? "page" : undefined}
             title="设置"
           >
             <SlidersHorizontal size={22} weight="regular" aria-hidden="true" />
             <span>设置</span>
-          </button>
+          </Button>
         </nav>
 
         <div className="rail-footer">
@@ -449,14 +531,13 @@ function App() {
                     符合
                   </span>
                 </div>
-                <button
+                <Button
                   className={status?.is_recording ? "record-toggle recording" : "record-toggle"}
                   onClick={handleRecordingToggle}
                   disabled={isBusy}
-                  type="button"
                 >
                   {status?.is_recording ? "停止记录" : "开始记录"}
-                </button>
+                </Button>
               </div>
             </header>
 
@@ -467,9 +548,9 @@ function App() {
                     <span className="eyebrow">日志追踪</span>
                     <h3 id="timeline-title">今日记录</h3>
                   </div>
-                  <button onClick={handleRecordOnce} disabled={isBusy} type="button">
+                  <Button onClick={handleRecordOnce} disabled={isBusy}>
                     记录一次
-                  </button>
+                  </Button>
                 </div>
                 {entries.length === 0 ? (
                   <div className="empty-state">
@@ -489,10 +570,10 @@ function App() {
                         const thumbUrl = thumbUrls[entry.screenshot_thumb];
 
                         return (
-                          <button
+                          <Button
                             className="capture-tile"
+                            variant="plain"
                             key={`${entry.timestamp}-${entry.screenshot_thumb}`}
-                            type="button"
                             onClick={() => setDetailEntry(entry)}
                             aria-label={`查看 ${formatEntryTime(entry.timestamp)} 的识别结果`}
                           >
@@ -508,7 +589,7 @@ function App() {
                               className={entry.is_on_project ? "status-dot good" : "status-dot warn"}
                               aria-hidden="true"
                             />
-                          </button>
+                          </Button>
                         );
                       })}
                     </div>
@@ -516,12 +597,12 @@ function App() {
                     <div className="timeline-picker">
                       <div className="timeline-rule" aria-hidden="true">
                         {timelineBuckets.map((bucket, index) => (
-                          <button
+                          <Button
                             className={
                               index === selectedBucketIndex ? "timeline-tick selected" : "timeline-tick"
                             }
+                            variant="plain"
                             key={`${bucket.key}-tick`}
-                            type="button"
                             onClick={() => setSelectedBucketKey(bucket.key)}
                             aria-label={`选择 ${bucket.range} 的记录`}
                           />
@@ -540,87 +621,149 @@ function App() {
               </section>
 
               <aside className="panel summary-panel" aria-labelledby="summary-title">
-                <div className="panel-heading">
-                  <div>
-                    <span className="eyebrow">今日概要</span>
-                    <h3 id="summary-title">时间段摘要</h3>
+                <Tabs.Root
+                  className="summary-tabs"
+                  value={summaryPanelTab}
+                  onValueChange={(value) =>
+                    setSummaryPanelTab(value as SummaryPanelTab)
+                  }
+                >
+                  <div className="panel-heading summary-heading">
+                    <div>
+                      <span className="eyebrow">今日概要</span>
+                      <h3 id="summary-title">
+                        {summaryPanelTab === "blocks" ? "时间段摘要" : "日报"}
+                      </h3>
+                    </div>
+                    <Tabs.List className="summary-tab-list" aria-label="今日概要视图">
+                      <Tabs.Tab className="summary-tab" value="blocks">
+                        时间段
+                      </Tabs.Tab>
+                      <Tabs.Tab className="summary-tab" value="daily">
+                        日报
+                      </Tabs.Tab>
+                    </Tabs.List>
                   </div>
-                </div>
-                {summarySections.length === 0 ? (
-                  <div className="summary-empty">
-                    <strong>等待摘要</strong>
-                    <p>开始记录后，这里会按时间段汇总你在做什么。</p>
+
+                  <Tabs.Panel className="summary-tab-panel" value="blocks">
+                    {summarySections.length === 0 ? (
+                      <div className="summary-empty">
+                        <strong>等待摘要</strong>
+                        <p>开始记录后，这里会按时间段汇总你在做什么。</p>
+                      </div>
+                    ) : (
+                      <div className="summary-list">
+                        {summarySections.map((section) => (
+                          <article className="summary-entry" key={section.range}>
+                            <time>{section.range}</time>
+                            <strong>{section.title}</strong>
+                            <p>{section.detail}</p>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </Tabs.Panel>
+
+                  <Tabs.Panel className="summary-tab-panel" value="daily">
+                    <div className="daily-report">
+                      <section className="daily-report-hero">
+                        <span>今日结论</span>
+                        <strong>{dailyReportView.alignmentLabel}</strong>
+                        <p>{dailyReportView.overview}</p>
+                      </section>
+
+                      <section className="daily-report-section">
+                        <h4>完成了什么</h4>
+                        <ul>
+                          {dailyReportView.primaryWork.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </section>
+
+                      <section className="daily-report-section">
+                        <h4>主要偏离</h4>
+                        <ul>
+                          {dailyReportView.driftNotes.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </section>
+
+                      <section className="daily-report-section">
+                        <h4>复盘问题</h4>
+                        <ul>
+                          {dailyReportView.prompts.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </section>
+                    </div>
+                  </Tabs.Panel>
+
+                  <div className="summary-actions">
+                    <Button onClick={handleSummary} disabled={isBusy}>
+                      {summaryPanelTab === "daily" ? "重新生成" : "生成日报"}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setActiveTab("settings")}
+                    >
+                      打开设置
+                    </Button>
                   </div>
-                ) : (
-                  <div className="summary-list">
-                    {summarySections.map((section) => (
-                      <article className="summary-entry" key={section.range}>
-                        <time>{section.range}</time>
-                        <strong>{section.title}</strong>
-                        <p>{section.detail}</p>
-                      </article>
-                    ))}
-                  </div>
-                )}
-                <div className="summary-actions">
-                  <button onClick={handleSummary} disabled={isBusy} type="button">
-                    生成日报
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={() => setActiveTab("settings")}
-                    type="button"
-                  >
-                    打开设置
-                  </button>
-                </div>
-                {message ? <p className="message">{message}</p> : null}
+                  {message ? <p className="message">{message}</p> : null}
+                </Tabs.Root>
               </aside>
             </div>
 
             {detailEntry ? (
-              <div className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-modal-title">
-                <button
-                  className="entry-modal-backdrop"
-                  type="button"
-                  aria-label="关闭识别结果"
-                  onClick={() => setDetailEntry(null)}
-                />
-                <section className="entry-modal-panel">
-                  <div className="entry-modal-heading">
-                    <div>
-                      <span className="eyebrow">模型识别结果</span>
-                      <h3 id="entry-modal-title">{formatEntryTime(detailEntry.timestamp)}</h3>
-                    </div>
-                    <button
-                      className="secondary"
-                      type="button"
-                      onClick={() => setDetailEntry(null)}
-                    >
-                      关闭
-                    </button>
-                  </div>
-                  <div className="entry-modal-body">
-                    <div className="entry-preview">
-                      {detailThumbUrl ? (
-                        <img src={detailThumbUrl} alt="" />
-                      ) : (
-                        <span className="capture-placeholder" aria-hidden="true" />
-                      )}
-                    </div>
-                    <div className="entry-result">
-                      <span>Summary</span>
-                      <strong>{detailEntry.intent}</strong>
-                      <p>{detailEntry.reason}</p>
-                      <small>{detailEntry.visible_context}</small>
-                      <div className={detailEntry.is_on_project ? "badge good" : "badge warn"}>
-                        {detailEntry.is_on_project ? "符合" : "偏离"} ·{" "}
-                        {Math.round(detailEntry.confidence * 100)}%
+              <Dialog.Root
+                open
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setDetailEntry(null);
+                  }
+                }}
+              >
+                <Dialog.Portal>
+                  <Dialog.Backdrop className="entry-modal-backdrop" />
+                  <Dialog.Viewport className="entry-modal">
+                    <Dialog.Popup className="entry-modal-panel">
+                      <div className="entry-modal-heading">
+                        <div>
+                          <span className="eyebrow">模型识别结果</span>
+                          <Dialog.Title id="entry-modal-title" render={<h3 />}>
+                            {formatEntryTime(detailEntry.timestamp)}
+                          </Dialog.Title>
+                        </div>
+                        <Dialog.Close className="ui-button ui-button-secondary">
+                          关闭
+                        </Dialog.Close>
                       </div>
-                    </div>
-                  </div>
-                </section>
-              </div>
+                      <div className="entry-modal-body">
+                        <div className="entry-preview">
+                          {detailThumbUrl ? (
+                            <img src={detailThumbUrl} alt="" />
+                          ) : (
+                            <span className="capture-placeholder" aria-hidden="true" />
+                          )}
+                        </div>
+                        <div className="entry-result">
+                          <span>Summary</span>
+                          <strong>{detailEntry.intent}</strong>
+                          <p>{detailEntry.reason}</p>
+                          <small>{detailEntry.visible_context}</small>
+                          <div className={detailEntry.is_on_project ? "badge good" : "badge warn"}>
+                            {detailEntry.is_on_project ? "符合" : "偏离"} ·{" "}
+                            {Math.round(detailEntry.confidence * 100)}%
+                          </div>
+                        </div>
+                      </div>
+                    </Dialog.Popup>
+                  </Dialog.Viewport>
+                </Dialog.Portal>
+              </Dialog.Root>
             ) : null}
           </>
         ) : (
@@ -639,67 +782,59 @@ function App() {
                   <span className="eyebrow">今日项目</span>
                   <h3 id="settings-title">监督配置</h3>
                 </div>
-                <button onClick={handleSaveConfig} disabled={isBusy} type="button">
+                <Button onClick={handleSaveConfig} disabled={isBusy}>
                   保存设置
-                </button>
+                </Button>
               </div>
               <div className="settings-grid">
-                <label>
-                  名称
-                  <input
+                <Field.Root>
+                  <Field.Label>名称</Field.Label>
+                  <Input
                     value={config.project_name}
-                    onChange={(event) =>
-                      setConfig({ ...config, project_name: event.target.value })
+                    onValueChange={(value) =>
+                      setConfig({ ...config, project_name: value })
                     }
                     placeholder="例如：MindBack MVP"
                   />
-                </label>
-                <label>
-                  截图间隔
-                  <select
-                    value={config.interval_seconds}
-                    onChange={(event) =>
+                </Field.Root>
+                <Field.Root>
+                  <Field.Label>截图间隔</Field.Label>
+                  <Select
+                    ariaLabel="截图间隔"
+                    value={String(config.interval_seconds)}
+                    onValueChange={(value) =>
                       setConfig({
                         ...config,
-                        interval_seconds: Number(event.target.value),
+                        interval_seconds: Number(value),
                       })
                     }
-                  >
-                    {[30, 60, 120, 300].map((seconds) => (
-                      <option key={seconds} value={seconds}>
-                        {seconds} 秒
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="wide">
-                  描述
-                  <textarea
+                    options={INTERVAL_OPTIONS}
+                  />
+                </Field.Root>
+                <Field.Root className="wide">
+                  <Field.Label>描述</Field.Label>
+                  <Textarea
                     value={config.project_description}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       setConfig({
                         ...config,
-                        project_description: event.target.value,
+                        project_description: value,
                       })
                     }
                     placeholder="今天只围绕这个项目推进。"
                   />
-                </label>
-                <label className="wide">
-                  模型
-                  <select
+                </Field.Root>
+                <Field.Root className="wide">
+                  <Field.Label>模型</Field.Label>
+                  <Select
+                    ariaLabel="模型"
                     value={config.model}
-                    onChange={(event) =>
-                      setConfig({ ...config, model: event.target.value })
+                    onValueChange={(value) =>
+                      setConfig({ ...config, model: value })
                     }
-                  >
-                    {MODELS.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    options={MODEL_OPTIONS}
+                  />
+                </Field.Root>
               </div>
               {message ? <p className="message">{message}</p> : null}
             </section>

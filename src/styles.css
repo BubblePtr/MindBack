@@ -30,6 +30,7 @@ html,
 body,
 #root {
   height: 100%;
+  isolation: isolate;
   overflow: hidden;
 }
 
@@ -37,6 +38,7 @@ body {
   background: var(--canvas);
   margin: 0;
   min-width: 760px;
+  position: relative;
 }
 
 button,
@@ -46,7 +48,7 @@ textarea {
   font: inherit;
 }
 
-button {
+.ui-button {
   align-items: center;
   background: var(--ink);
   border: 1px solid var(--ink);
@@ -64,28 +66,33 @@ button {
     color 160ms ease;
 }
 
-button:hover {
+.ui-button:hover {
   background: var(--black-soft);
   border-color: var(--black-soft);
 }
 
-button:focus-visible {
+.ui-button:focus-visible,
+.tab:focus-visible,
+.capture-tile:focus-visible,
+.timeline-tick:focus-visible,
+.ui-select-trigger:focus-visible {
   outline: 3px solid rgba(17, 16, 14, 0.16);
   outline-offset: 2px;
 }
 
-button:disabled {
+.ui-button:disabled,
+.ui-button[data-disabled] {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-button.secondary {
+.ui-button-secondary {
   background: var(--paper-muted);
   border-color: var(--line-strong);
   color: var(--ink-soft);
 }
 
-button.secondary:hover {
+.ui-button-secondary:hover {
   background: var(--paper);
   border-color: #b8aea0;
 }
@@ -138,13 +145,23 @@ button.secondary:hover {
 }
 
 .tab {
+  align-items: center;
   background: transparent;
-  border-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
   color: var(--ink-soft);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 600;
   gap: 9px;
   justify-content: flex-start;
   min-height: 42px;
   padding: 0 11px;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
   width: 100%;
 }
 
@@ -454,7 +471,10 @@ button.secondary:hover {
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink);
+  cursor: pointer;
   display: grid;
+  font: inherit;
+  font-weight: 600;
   min-height: 0;
   overflow: hidden;
   padding: 0;
@@ -551,6 +571,8 @@ button.secondary:hover {
 .timeline-tick {
   background: transparent;
   border: 0;
+  cursor: pointer;
+  font: inherit;
   height: 18px;
   min-height: 18px;
   padding: 0;
@@ -793,10 +815,67 @@ button.secondary:hover {
 .summary-panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
   height: 100%;
   min-height: 0;
   overflow: auto;
+}
+
+.summary-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+
+.summary-heading {
+  align-items: start;
+  margin-bottom: 0;
+}
+
+.summary-tab-list {
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.summary-tab {
+  background: var(--paper);
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  min-height: 31px;
+  min-width: 58px;
+  padding: 0 10px;
+}
+
+.summary-tab:hover {
+  background: var(--gray-fill);
+  color: var(--ink);
+}
+
+.summary-tab[data-selected] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.summary-tab:focus-visible {
+  outline: 3px solid rgba(17, 16, 14, 0.16);
+  outline-offset: -1px;
+}
+
+.summary-tab-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .summary-list {
@@ -855,6 +934,65 @@ button.secondary:hover {
   margin-top: auto;
 }
 
+.daily-report {
+  display: grid;
+  gap: 15px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.daily-report-hero {
+  background: var(--gray-fill);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.daily-report-hero span,
+.daily-report-section h4 {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  margin: 0;
+}
+
+.daily-report-hero strong {
+  font-size: 18px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.daily-report-hero p,
+.daily-report-section li {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.daily-report-section {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  padding-top: 13px;
+}
+
+.daily-report-section ul {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.daily-report-section li::before {
+  color: var(--ink);
+  content: "- ";
+  font-weight: 800;
+}
+
 .message {
   background: var(--paper-muted);
   border: 1px solid var(--line-strong);
@@ -877,7 +1015,7 @@ button.secondary:hover {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-label {
+.ui-field {
   color: var(--ink-soft);
   display: flex;
   flex-direction: column;
@@ -886,13 +1024,12 @@ label {
   min-width: 0;
 }
 
-label.wide {
+.ui-field.wide {
   grid-column: 1 / -1;
 }
 
-input,
-select,
-textarea {
+.ui-input,
+.ui-select-trigger {
   background: var(--paper);
   border: 1px solid var(--line-strong);
   border-radius: 7px;
@@ -902,17 +1039,82 @@ textarea {
   width: 100%;
 }
 
-input:focus,
-select:focus,
-textarea:focus {
+.ui-input:focus,
+.ui-select-trigger:focus {
   border-color: var(--ink);
   outline: 3px solid rgba(17, 16, 14, 0.12);
 }
 
-textarea {
+.ui-textarea {
   line-height: 1.5;
   min-height: 118px;
   resize: vertical;
+}
+
+.ui-field-label {
+  font: inherit;
+}
+
+.ui-select-trigger {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  justify-content: space-between;
+  min-height: 40px;
+  text-align: left;
+}
+
+.ui-select-trigger[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ui-select-icon {
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: 12px;
+  margin-left: 10px;
+}
+
+.ui-select-positioner {
+  z-index: 30;
+}
+
+.ui-select-popup {
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  box-shadow: 0 12px 32px rgba(17, 16, 14, 0.14);
+  max-height: min(280px, var(--available-height));
+  min-width: var(--anchor-width);
+  overflow: auto;
+  padding: 5px;
+}
+
+.ui-select-list {
+  display: grid;
+  gap: 2px;
+}
+
+.ui-select-item {
+  border-radius: 5px;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 650;
+  line-height: 1.35;
+  outline: 0;
+  overflow-wrap: anywhere;
+  padding: 8px 9px;
+}
+
+.ui-select-item[data-highlighted] {
+  background: var(--gray-fill);
+}
+
+.ui-select-item[data-selected] {
+  background: var(--ink);
+  color: var(--paper);
 }
 
 @media (max-width: 980px) {
