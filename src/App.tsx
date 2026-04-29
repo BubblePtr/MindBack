@@ -86,10 +86,25 @@ function getBucketStart(timestamp: string) {
   return bucketStart;
 }
 
+function getBucketEnd(bucketKey: string) {
+  const end = new Date(bucketKey);
+  end.setMinutes(end.getMinutes() + 30);
+  return end;
+}
+
+function addHalfHour(date: Date) {
+  const next = new Date(date);
+  next.setMinutes(next.getMinutes() + 30);
+  return next;
+}
+
+function isCompletedBucket(bucketKey: string, now: Date) {
+  return getBucketEnd(bucketKey).getTime() <= now.getTime();
+}
+
 function formatBucketRange(bucketKey: string) {
   const start = new Date(bucketKey);
-  const end = new Date(start);
-  end.setMinutes(start.getMinutes() + 30);
+  const end = getBucketEnd(bucketKey);
   return `${formatTime(start)} - ${formatTime(end)}`;
 }
 
@@ -103,6 +118,16 @@ function dominantIntent(entries: LogEntry[]) {
 }
 
 function summarizeBucket(key: string, bucketEntries: LogEntry[]): TimelineBucket {
+  if (bucketEntries.length === 0) {
+    return {
+      key,
+      range: formatBucketRange(key),
+      entries: [],
+      title: "暂无记录",
+      detail: "0 条记录。该时间段没有可展示的截图。",
+    };
+  }
+
   const onProject = bucketEntries.filter((entry) => entry.is_on_project).length;
   const ratio = Math.round((onProject / bucketEntries.length) * 100);
   const intent = dominantIntent(bucketEntries);
@@ -207,6 +232,7 @@ function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [summaryBlocks, setSummaryBlocks] = useState<SummaryTimeBlock[]>([]);
+  const [currentTime, setCurrentTime] = useState(() => new Date());
   const [selectedBucketKey, setSelectedBucketKey] = useState<string | null>(null);
   const [detailEntry, setDetailEntry] = useState<LogEntry | null>(null);
   const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
@@ -214,6 +240,7 @@ function App() {
   const [isBusy, setBusy] = useState(false);
   const activeTabRef = useRef(activeTab);
   const refreshInFlightRef = useRef(false);
+  const lastSummaryBucketRef = useRef<string | null>(null);
 
   const timelineEntries = useMemo(
     () =>
@@ -233,10 +260,27 @@ function App() {
       buckets.set(key, [...(buckets.get(key) ?? []), entry]);
     }
 
-    return [...buckets.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, bucketEntries]) => summarizeBucket(key, bucketEntries));
-  }, [timelineEntries]);
+    const sortedKeys = [...buckets.keys()].sort();
+    if (sortedKeys.length === 0) return [];
+
+    const firstStart = new Date(sortedKeys[0]);
+    const lastEntryStart = new Date(sortedKeys[sortedKeys.length - 1]);
+    const currentStart = getBucketStart(currentTime.toISOString());
+    const lastStart =
+      status?.is_recording && currentStart > lastEntryStart ? currentStart : lastEntryStart;
+    const completeBuckets: TimelineBucket[] = [];
+
+    for (
+      let cursor = firstStart;
+      cursor.getTime() <= lastStart.getTime();
+      cursor = addHalfHour(cursor)
+    ) {
+      const key = cursor.toISOString();
+      completeBuckets.push(summarizeBucket(key, buckets.get(key) ?? []));
+    }
+
+    return completeBuckets;
+  }, [currentTime, status?.is_recording, timelineEntries]);
 
   const selectedBucketIndex = useMemo(() => {
     if (timelineBuckets.length === 0) return 0;
@@ -257,18 +301,20 @@ function App() {
 
   const summarySections = useMemo(
     () =>
-      timelineBuckets.map((bucket) => {
-        const block = summaryBlockByRange.get(bucket.range);
-        if (!block) return bucket;
-        const evidence = block.evidence.slice(0, 2).join(" ");
-        const label = summaryStatusLabel(block.status);
-        return {
-          ...bucket,
-          title: block.summary,
-          detail: `${label}，${block.record_count} 条记录，${block.on_project_ratio}% 符合今日项目${evidence ? `。${evidence}` : "。"}`,
-        };
-      }),
-    [summaryBlockByRange, timelineBuckets],
+      timelineBuckets
+        .filter((bucket) => isCompletedBucket(bucket.key, currentTime))
+        .map((bucket) => {
+          const block = summaryBlockByRange.get(bucket.range);
+          if (!block) return bucket;
+          const evidence = block.evidence.slice(0, 2).join(" ");
+          const label = summaryStatusLabel(block.status);
+          return {
+            ...bucket,
+            title: block.summary,
+            detail: `${label}，${block.record_count} 条记录，${block.on_project_ratio}% 符合今日项目${evidence ? `。${evidence}` : "。"}`,
+          };
+        }),
+    [currentTime, summaryBlockByRange, timelineBuckets],
   );
 
   const onProjectRatio = useMemo(() => {
@@ -296,16 +342,23 @@ function App() {
 
   const refresh = useCallback(async (options: { syncConfig?: boolean } = {}) => {
     const syncConfig = options.syncConfig ?? activeTabRef.current !== "settings";
+    const now = new Date();
+    const currentBucketKey = getBucketStart(now.toISOString()).toISOString();
+    const shouldSummarizePreviousWindow = lastSummaryBucketRef.current !== currentBucketKey;
+    lastSummaryBucketRef.current = currentBucketKey;
     const [nextConfig, nextStatus, nextEntries, nextBlocks, refreshedBlock] = await Promise.all([
       getConfig(),
       getStatus(),
       listTodayEntries(),
       getTodaySummaryBlocks(),
-      summarizePreviousHalfHour().catch(() => null),
+      shouldSummarizePreviousWindow
+        ? summarizePreviousHalfHour().catch(() => null)
+        : Promise.resolve(null),
     ]);
     if (syncConfig) {
       setConfig(nextConfig);
     }
+    setCurrentTime(now);
     setStatus(nextStatus);
     setEntries(nextEntries);
     setSummaryBlocks(mergeSummaryBlocks(nextBlocks, refreshedBlock));
@@ -566,32 +619,36 @@ function App() {
                     </div>
 
                     <div className="capture-grid" aria-label="当前时间段截图预览">
-                      {visibleEntries.map((entry) => {
-                        const thumbUrl = thumbUrls[entry.screenshot_thumb];
+                      {visibleEntries.length === 0 ? (
+                        <div className="capture-empty">这个时间段没有截图记录。</div>
+                      ) : (
+                        visibleEntries.map((entry) => {
+                          const thumbUrl = thumbUrls[entry.screenshot_thumb];
 
-                        return (
-                          <Button
-                            className="capture-tile"
-                            variant="plain"
-                            key={`${entry.timestamp}-${entry.screenshot_thumb}`}
-                            onClick={() => setDetailEntry(entry)}
-                            aria-label={`查看 ${formatEntryTime(entry.timestamp)} 的识别结果`}
-                          >
-                            {thumbUrl ? (
-                              <img src={thumbUrl} alt="" aria-hidden="true" />
-                            ) : (
-                              <span className="capture-placeholder" aria-hidden="true" />
-                            )}
-                            <span className="capture-time">
-                              {formatEntryTime(entry.timestamp)}
-                            </span>
-                            <span
-                              className={entry.is_on_project ? "status-dot good" : "status-dot warn"}
-                              aria-hidden="true"
-                            />
-                          </Button>
-                        );
-                      })}
+                          return (
+                            <Button
+                              className="capture-tile"
+                              variant="plain"
+                              key={`${entry.timestamp}-${entry.screenshot_thumb}`}
+                              onClick={() => setDetailEntry(entry)}
+                              aria-label={`查看 ${formatEntryTime(entry.timestamp)} 的识别结果`}
+                            >
+                              {thumbUrl ? (
+                                <img src={thumbUrl} alt="" aria-hidden="true" />
+                              ) : (
+                                <span className="capture-placeholder" aria-hidden="true" />
+                              )}
+                              <span className="capture-time">
+                                {formatEntryTime(entry.timestamp)}
+                              </span>
+                              <span
+                                className={entry.is_on_project ? "status-dot good" : "status-dot warn"}
+                                aria-hidden="true"
+                              />
+                            </Button>
+                          );
+                        })
+                      )}
                     </div>
 
                     <div className="timeline-picker">
