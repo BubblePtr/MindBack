@@ -49,10 +49,52 @@ def parse_model_json(text: str) -> dict[str, Any]:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        decoder = json.JSONDecoder()
+        match = re.search(r"\{", text)
         if match:
-            return json.loads(match.group(0))
+            payload, _ = decoder.raw_decode(text[match.start() :])
+            if isinstance(payload, dict):
+                return payload
         raise
+
+
+def stringify_field(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        return "；".join(stringify_field(item) for item in value if stringify_field(item))
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value).strip()
+
+
+def bool_field(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "yes", "1", "是", "符合"}
+    return bool(value)
+
+
+def confidence_field(value: Any) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(1.0, confidence))
+
+
+def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "intent": stringify_field(payload.get("intent")) or "未能判断当前行为",
+        "is_on_project": bool_field(payload.get("is_on_project")),
+        "confidence": confidence_field(payload.get("confidence")),
+        "reason": stringify_field(payload.get("reason")),
+        "visible_context": stringify_field(payload.get("visible_context")),
+        "error": payload.get("error"),
+    }
 
 
 def main() -> int:
@@ -73,11 +115,13 @@ def main() -> int:
         "如果能识别应用，请结合该应用通常用途判断用户大概在做什么，再结合窗口标题、页面正文、代码、文档、聊天内容或浏览器标签判断用户正在关注的具体内容。"
         "如果左上角应用名不可读，再使用屏幕中最显著的窗口内容推断。\n"
         "判断是否符合今日项目时，只基于截图中可见证据；不确定时不要强行判定为符合项目。\n"
+        "如果截图里显示 MindBack 自己的模型识别结果、Summary、日志详情或 JSON 样文本，不要把这些长文本原样复制进输出；只用一句话概括它们显示的界面状态。\n"
         "必须返回字段：intent, is_on_project, confidence, reason, visible_context。\n"
         "字段要求：intent 用一句话概括用户正在做的事；is_on_project 表示该行为是否直接服务今日项目；"
         "confidence 是 0 到 1 的数字，0.8 以上仅用于活跃应用和内容都清晰且与项目关系明确的情况，0.4 到 0.7 用于部分证据或间接相关，0.4 以下用于看不清或无法判断；"
         "reason 说明你的判断依据，优先提到活跃应用、应用用途和可见内容如何对应今日项目；"
-        "visible_context 记录屏幕上可见的关键证据，例如活跃应用名、窗口标题、页面/文件名、正在编辑或阅读的主题。\n"
+        "visible_context 必须是一个短字符串，记录屏幕上可见的关键证据，例如活跃应用名、窗口标题、页面/文件名、正在编辑或阅读的主题；不要返回数组或对象。\n"
+        '严格输出示例：{"intent":"用户正在查看 MindBack 的今日记录","is_on_project":true,"confidence":0.86,"reason":"左上角活跃应用是 MindBack，窗口内容是项目日志追踪界面。","visible_context":"MindBack；今日记录；11:30 AM - 12:00 PM"}\n'
         "所有字段值必须使用简体中文，除非截图中出现必须保留的代码、命令、文件名或专有名词。"
     )
 
@@ -116,8 +160,7 @@ def main() -> int:
         )
         return 0
 
-    payload.setdefault("error", None)
-    emit(payload)
+    emit(normalize_payload(payload))
     return 0
 
 
