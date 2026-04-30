@@ -3,6 +3,7 @@ use std::{
     fs,
     io::Write,
     process::{Command, Stdio},
+    time::Instant,
 };
 
 use anyhow::{Context, Result};
@@ -12,7 +13,7 @@ use crate::{
     models::{
         AppConfig, LogEntry, NotableDrift, ProjectAlignment, SummaryAgentRequest,
         SummaryAgentResult, SummaryAssessment, SummaryBlockStatus, SummaryLogEntry,
-        SummaryTimeBlock,
+        SummaryTimeBlock, TodaySummaryReport,
     },
     storage::Storage,
 };
@@ -40,19 +41,57 @@ impl<'a> SummaryService<'a> {
     }
 
     pub fn write_today_summary(&self) -> Result<std::path::PathBuf> {
+        Ok(std::path::PathBuf::from(
+            self.write_today_summary_report()?.path,
+        ))
+    }
+
+    pub fn write_today_summary_report(&self) -> Result<TodaySummaryReport> {
         let today = Local::now().date_naive();
         let config = self.storage.read_config()?;
-        self.ensure_completed_window_summaries(config)?;
+        self.ensure_completed_window_summaries(&config)?;
         let entries = self.storage.list_entries_for(today)?;
         let blocks = read_summary_blocks_for(self.storage, today)?;
-        let config = self.storage.read_config()?;
         let result = if config.summary_enabled {
-            run_summary_agent_daily(&config, today, &entries, &blocks)
-                .unwrap_or_else(|_| fallback_daily_result(&entries, &blocks))
+            let started_at = Instant::now();
+            match run_summary_agent_daily(&config, today, &blocks) {
+                Ok(result) => {
+                    write_summary_agent_log(
+                        self.storage,
+                        today,
+                        &format!(
+                            "daily success elapsed_ms={} blocks={} entries_sent=0 model={}",
+                            started_at.elapsed().as_millis(),
+                            blocks.len(),
+                            config.summary_model
+                        ),
+                    )?;
+                    result
+                }
+                Err(error) => {
+                    let error = error.to_string();
+                    write_summary_agent_log(
+                        self.storage,
+                        today,
+                        &format!(
+                            "daily fallback elapsed_ms={} blocks={} entries_sent=0 model={} error={}",
+                            started_at.elapsed().as_millis(),
+                            blocks.len(),
+                            config.summary_model,
+                            error
+                        ),
+                    )?;
+                    fallback_daily_result(&entries, &blocks, Some(error))
+                }
+            }
         } else {
-            fallback_daily_result(&entries, &blocks)
+            fallback_daily_result(&entries, &blocks, None)
         };
-        write_summary_markdown(self.storage, today, &entries, &result)
+        let path = write_summary_markdown(self.storage, today, &entries, &result)?;
+        Ok(TodaySummaryReport {
+            path: path.display().to_string(),
+            result,
+        })
     }
 
     #[cfg(test)]
@@ -64,7 +103,7 @@ impl<'a> SummaryService<'a> {
         fallback_block(start, end, entries, None)
     }
 
-    fn ensure_completed_window_summaries(&self, config: AppConfig) -> Result<()> {
+    fn ensure_completed_window_summaries(&self, config: &AppConfig) -> Result<()> {
         let now = Local::now();
         let today = now.date_naive();
         let entries = self.storage.list_entries_for(today)?;
@@ -233,44 +272,76 @@ fn run_summary_agent_window(
 fn run_summary_agent_daily(
     config: &AppConfig,
     today: NaiveDate,
-    entries: &[LogEntry],
     blocks: &[SummaryTimeBlock],
 ) -> Result<SummaryAgentResult> {
-    let request = SummaryAgentRequest {
+    let request = daily_summary_agent_request(config, today, blocks);
+    let mut result = run_summary_agent(config, &request)?;
+    if let Some(error) = &result.error {
+        anyhow::bail!(error.clone());
+    }
+    if result.time_blocks.is_empty() {
+        result.time_blocks = blocks.to_vec();
+    }
+    Ok(result)
+}
+
+fn daily_summary_agent_request(
+    config: &AppConfig,
+    today: NaiveDate,
+    blocks: &[SummaryTimeBlock],
+) -> SummaryAgentRequest {
+    SummaryAgentRequest {
         task: "daily".to_string(),
         date: today.format("%Y-%m-%d").to_string(),
         project: config.project_name.clone(),
         window_start: None,
         window_end: None,
-        entries: entries.iter().map(summary_log_entry).collect(),
-        time_blocks: blocks.to_vec(),
-    };
-    let result = run_summary_agent(config, &request)?;
-    if let Some(error) = &result.error {
-        anyhow::bail!(error.clone());
+        entries: Vec::new(),
+        time_blocks: blocks.iter().map(compact_daily_block).collect(),
     }
-    Ok(result)
+}
+
+fn compact_daily_block(block: &SummaryTimeBlock) -> SummaryTimeBlock {
+    SummaryTimeBlock {
+        start: block.start.clone(),
+        end: block.end.clone(),
+        status: block.status.clone(),
+        summary: block.summary.clone(),
+        evidence: block.evidence.iter().take(1).cloned().collect(),
+        record_count: block.record_count,
+        on_project_ratio: block.on_project_ratio,
+        error: block.error.clone(),
+    }
 }
 
 fn run_summary_agent(
     config: &AppConfig,
     request: &SummaryAgentRequest,
 ) -> Result<SummaryAgentResult> {
-    if std::env::var("DEEPSEEK_API_KEY")
-        .unwrap_or_default()
-        .is_empty()
-        && std::env::var("MINDBACK_SUMMARY_AGENT_REQUIRE_KEY").unwrap_or_default() != "0"
-    {
-        anyhow::bail!("DEEPSEEK_API_KEY is not set");
-    }
-
     let command =
         std::env::var("MINDBACK_SUMMARY_AGENT_COMMAND").unwrap_or_else(|_| "bun".to_string());
     let agent_path = std::env::var("MINDBACK_SUMMARY_AGENT_PATH")
         .unwrap_or_else(|_| "workers/summary_agent.ts".to_string());
+    run_summary_agent_command(config, request, &command, &agent_path)
+}
+
+fn run_summary_agent_command(
+    config: &AppConfig,
+    request: &SummaryAgentRequest,
+    command: &str,
+    agent_path: &str,
+) -> Result<SummaryAgentResult> {
+    let default_cwd = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let cwd = std::env::var("MINDBACK_SUMMARY_AGENT_CWD")
+        .map(std::path::PathBuf::from)
+        .unwrap_or(default_cwd);
 
     let mut child = Command::new(command)
         .arg(agent_path)
+        .current_dir(cwd)
         .env("MINDBACK_SUMMARY_MODEL", &config.summary_model)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -358,7 +429,11 @@ fn fallback_block(
     }
 }
 
-fn fallback_daily_result(entries: &[LogEntry], blocks: &[SummaryTimeBlock]) -> SummaryAgentResult {
+fn fallback_daily_result(
+    entries: &[LogEntry],
+    blocks: &[SummaryTimeBlock],
+    error: Option<String>,
+) -> SummaryAgentResult {
     let ratio = on_project_ratio(entries);
     let assessment = if entries.is_empty() {
         SummaryAssessment::InsufficientData
@@ -399,8 +474,19 @@ fn fallback_daily_result(entries: &[LogEntry], blocks: &[SummaryTimeBlock]) -> S
             "哪些时间段最容易偏离今日项目？".to_string(),
             "明天是否需要提前安排一个低干扰的启动任务？".to_string(),
         ],
-        error: None,
+        error,
     }
+}
+
+fn write_summary_agent_log(storage: &Storage, today: NaiveDate, message: &str) -> Result<()> {
+    let path = storage.day_dir(today)?.join("summary_agent.log");
+    let timestamp = Local::now().to_rfc3339();
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(file, "[{timestamp}] {message}")?;
+    Ok(())
 }
 
 fn write_summary_markdown(
@@ -517,11 +603,15 @@ fn status_label(status: &SummaryBlockStatus) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use chrono::{Datelike, Local, TimeZone};
     use tempfile::tempdir;
 
     use crate::{
-        models::{AppConfig, LogEntry, SummaryBlockStatus},
+        models::{
+            AppConfig, LogEntry, SummaryAgentRequest, SummaryAssessment, SummaryBlockStatus,
+        },
         storage::Storage,
         summary::{
             bucket_start, previous_completed_window, summarize_previous_half_hour_at,
@@ -573,6 +663,7 @@ mod tests {
         let storage = Storage::new(dir.path()).unwrap();
         let config = AppConfig {
             project_name: "MindBack".to_string(),
+            summary_enabled: false,
             ..AppConfig::default()
         };
         storage
@@ -629,5 +720,88 @@ mod tests {
 
         assert_eq!(block.summary, cached.summary);
         assert_eq!(block.record_count, 1);
+    }
+
+    #[test]
+    fn today_summary_report_returns_structured_result_and_writes_markdown() {
+        let dir = tempdir().unwrap();
+        let storage = Storage::new(dir.path()).unwrap();
+        storage
+            .save_config(&AppConfig {
+                project_name: "MindBack".to_string(),
+                summary_enabled: false,
+                ..AppConfig::default()
+            })
+            .unwrap();
+        storage
+            .append_log_entry(&entry_at(9, 40, "Writing UI integration", true))
+            .unwrap();
+
+        let report = SummaryService::new(&storage)
+            .write_today_summary_report()
+            .unwrap();
+
+        assert!(report.path.ends_with("summary.md"));
+        assert!(std::path::Path::new(&report.path).exists());
+        assert_eq!(
+            report.result.project_alignment.assessment,
+            SummaryAssessment::Focused
+        );
+        assert!(report.result.overview.contains("1 条记录"));
+    }
+
+    #[test]
+    fn daily_summary_agent_request_uses_cached_blocks_without_raw_entries() {
+        let block = SummaryService::fallback_block(
+            at(9, 30),
+            at(10, 0),
+            &[entry_at(9, 40, "Writing UI integration", true)],
+        );
+
+        let request = super::daily_summary_agent_request(
+            &AppConfig {
+                project_name: "MindBack".to_string(),
+                ..AppConfig::default()
+            },
+            at(9, 30).date_naive(),
+            &[block],
+        );
+
+        assert_eq!(request.task, "daily");
+        assert!(request.entries.is_empty());
+        assert_eq!(request.time_blocks.len(), 1);
+        assert_eq!(request.time_blocks[0].evidence.len(), 1);
+    }
+
+    #[test]
+    fn summary_agent_command_does_not_require_key_in_parent_process() {
+        let dir = tempdir().unwrap();
+        let script = dir.path().join("agent.sh");
+        fs::write(
+            &script,
+            r#"cat >/dev/null
+printf '%s' '{"overview":"LLM overview","projectAlignment":{"onProjectRatio":100,"assessment":"focused"},"timeBlocks":[],"notableDrifts":[],"reflectionPrompts":["Review prompt"],"error":null}'
+"#,
+        )
+        .unwrap();
+        let request = SummaryAgentRequest {
+            task: "daily".to_string(),
+            date: Local::now().date_naive().format("%Y-%m-%d").to_string(),
+            project: "MindBack".to_string(),
+            window_start: None,
+            window_end: None,
+            entries: Vec::new(),
+            time_blocks: Vec::new(),
+        };
+
+        let result = super::run_summary_agent_command(
+            &AppConfig::default(),
+            &request,
+            "/bin/sh",
+            script.to_str().unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(result.overview, "LLM overview");
     }
 }

@@ -44,7 +44,37 @@ export type SummaryTimeBlock = {
   status: SummaryBlockStatus;
   summary: string;
   evidence: string[];
-  record_count: number;
-  on_project_ratio: number;
+  recordCount: number;
+  onProjectRatio: number;
   error: string | null;
+};
+
+export type SummaryAssessment =
+  | "focused"
+  | "mixed"
+  | "drifted"
+  | "insufficient_data";
+
+export type ProjectAlignment = {
+  onProjectRatio: number;
+  assessment: SummaryAssessment;
+};
+
+export type NotableDrift = {
+  time: string;
+  reason: string;
+};
+
+export type SummaryAgentResult = {
+  overview: string;
+  projectAlignment: ProjectAlignment;
+  timeBlocks: SummaryTimeBlock[];
+  notableDrifts: NotableDrift[];
+  reflectionPrompts: string[];
+  error: string | null;
+};
+
+export type TodaySummaryReport = {
+  path: string;
+  result: SummaryAgentResult;
 };

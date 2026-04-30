@@ -207,7 +207,7 @@ Rust 根据 Agent JSON 渲染 Markdown，避免模型输出任意格式。
 
 第一版新增最小配置：
 
-- `summary_model`: 默认 `deepseek-chat`。
+- `summary_model`: 默认 `deepseek-v4-flash`，Summary Agent 使用非思考模式。
 - `summary_provider`: 默认 `deepseek`。
 - `summary_enabled`: 默认开启。
 

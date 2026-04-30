@@ -147,7 +147,7 @@ mod tests {
             project_description: "Build the first loop".to_string(),
             interval_seconds: 30,
             model: "mlx-community/gemma-4-e4b-it-4bit".to_string(),
-            summary_model: "deepseek-chat".to_string(),
+            summary_model: "deepseek-v4-flash".to_string(),
             summary_provider: "deepseek".to_string(),
             summary_enabled: true,
         };

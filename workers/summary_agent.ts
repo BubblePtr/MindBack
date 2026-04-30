@@ -1,5 +1,3 @@
-import { deepseek } from "@ai-sdk/deepseek";
-import { Output, ToolLoopAgent, stepCountIs } from "ai";
 import { z } from "zod";
 
 const SummaryBlockStatusSchema = z.enum([
@@ -147,13 +145,26 @@ function buildPrompt(request: SummaryAgentRequest) {
           "基于半小时窗口摘要生成当天日报总览。",
           "日报应聚合用户在哪些应用和内容之间切换、哪些时间段最贴近今日项目、哪些片段明显偏离或证据不足。",
           "不要重新分析原始截图，不要编造没有出现在 entries 或 timeBlocks 中的应用、网页、文件、任务或动机。",
+          "timeBlocks 必须返回空数组；宿主程序会复用输入中的缓存时间段摘要。",
           "reflectionPrompts 给 2 到 4 个具体复盘问题，问题应围绕时间安排、上下文切换和今日项目推进，不做心理诊断。",
         ].join(" ");
 
   return JSON.stringify(
     {
       instruction:
-        "你是 MindBack 的总结 Agent。只基于输入记录总结，不做心理诊断，不训诫用户，不编造事实。输入中的 reason 和 visibleContext 通常已经包含活跃应用、应用用途、窗口标题、页面/文件名和可见内容；这些是判断用户正在关注什么的主要证据。输出必须温和、事实化、证据导向、可复盘。",
+        "你是 MindBack 的总结 Agent。只基于输入记录总结，不做心理诊断，不训诫用户，不编造事实。输入中的 reason 和 visibleContext 通常已经包含活跃应用、应用用途、窗口标题、页面/文件名和可见内容；这些是判断用户正在关注什么的主要证据。输出必须温和、事实化、证据导向、可复盘。只返回 JSON，不要返回 Markdown 或额外解释。",
+      outputContract: {
+        overview: "string",
+        projectAlignment: {
+          onProjectRatio: "integer 0-100",
+          assessment: "focused | mixed | drifted | insufficient_data",
+        },
+        timeBlocks:
+          "array of { start, end, status, summary, evidence, recordCount, onProjectRatio, error }",
+        notableDrifts: "array of { time, reason }",
+        reflectionPrompts: "string[]",
+        error: null,
+      },
       task: taskInstruction,
       request,
     },
@@ -163,21 +174,52 @@ function buildPrompt(request: SummaryAgentRequest) {
 }
 
 async function runAgent(request: SummaryAgentRequest): Promise<SummaryAgentResult> {
-  const model = process.env.MINDBACK_SUMMARY_MODEL ?? "deepseek-chat";
-  const agent = new ToolLoopAgent({
-    model: deepseek(model),
-    instructions:
-      "You summarize local productivity records for MindBack. Use only provided data, especially active app names, app purpose, window titles, file/page names, and visible content captured in the recognition fields. Keep the tone calm, factual, and non-judgmental.",
-    output: Output.object({ schema: SummaryAgentResultSchema }),
-    stopWhen: stepCountIs(1),
-    temperature: 0.2,
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new Error("DEEPSEEK_API_KEY is not set");
+  }
+
+  const model = process.env.MINDBACK_SUMMARY_MODEL ?? "deepseek-v4-flash";
+  const baseUrl = process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com";
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You summarize local productivity records for MindBack. Use only provided data. Return compact JSON only.",
+        },
+        { role: "user", content: buildPrompt(request) },
+      ],
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+      max_tokens: 4096,
+      temperature: 0.2,
+      stream: false,
+    }),
+    signal: AbortSignal.timeout(60_000),
   });
 
-  const result = await agent.generate({
-    prompt: buildPrompt(request),
-    timeout: { totalMs: 60_000 },
-  });
-  const output = (result as { output?: unknown }).output;
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(`DeepSeek API ${response.status}: ${responseText}`);
+  }
+
+  const completion = JSON.parse(responseText) as {
+    choices?: Array<{ message?: { content?: unknown } }>;
+  };
+  const content = completion.choices?.[0]?.message?.content;
+  if (typeof content !== "string") {
+    throw new Error("DeepSeek response did not include message content");
+  }
+
+  const output = JSON.parse(content);
   const parsed = SummaryAgentResultSchema.safeParse(output);
   if (!parsed.success) {
     throw new Error(parsed.error.message);
@@ -189,11 +231,6 @@ async function main() {
   try {
     const input = await readStdin();
     const request = SummaryAgentRequestSchema.parse(JSON.parse(input));
-
-    if (!process.env.DEEPSEEK_API_KEY) {
-      console.log(JSON.stringify(emptyResult("DEEPSEEK_API_KEY is not set")));
-      return;
-    }
 
     if (request.task === "window" && request.entries.length === 0) {
       console.log(JSON.stringify(localWindowFallback(request)));

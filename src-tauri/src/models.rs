@@ -2,7 +2,7 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_MODEL: &str = "mlx-community/Qwen3-VL-4B-Instruct-4bit";
-pub const DEFAULT_SUMMARY_MODEL: &str = "deepseek-chat";
+pub const DEFAULT_SUMMARY_MODEL: &str = "deepseek-v4-flash";
 
 fn default_interval_seconds() -> u64 {
     60
@@ -148,6 +148,13 @@ pub struct SummaryAgentResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TodaySummaryReport {
+    pub path: String,
+    pub result: SummaryAgentResult,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SummaryLogEntry {
@@ -181,6 +188,6 @@ mod tests {
         let config = AppConfig::default();
 
         assert_eq!(config.summary_provider, "deepseek");
-        assert_eq!(config.summary_model, "deepseek-chat");
+        assert_eq!(config.summary_model, "deepseek-v4-flash");
     }
 }

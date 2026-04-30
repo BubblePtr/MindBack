@@ -76,7 +76,7 @@ cp .env.example .env
 | 变量 | 用途 |
 | --- | --- |
 | `DEEPSEEK_API_KEY` | Summary Agent 调用 DeepSeek 时使用；未配置时会回退到本地规则摘要。 |
-| `MINDBACK_SUMMARY_MODEL` | Summary Agent 使用的模型名。 |
+| `MINDBACK_SUMMARY_MODEL` | Summary Agent 使用的模型名，默认 `deepseek-v4-flash`。 |
 | `MINDBACK_MLX_PYTHON` | 覆盖 MLX worker 使用的 Python 路径。 |
 | `MINDBACK_MLX_MODEL_PATH` | 覆盖 MLX-VLM 模型路径。 |
 | `MINDBACK_WORKER_PATH` | 覆盖 `workers/mlx_worker.py` 路径。 |

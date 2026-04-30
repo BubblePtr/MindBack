@@ -162,6 +162,11 @@ fn handle_request(state: &AppState, request: DevBridgeRequest) -> Result<HttpRes
                 .map_err(to_bridge_error)?;
             json_response(&path.display().to_string())
         }
+        ("POST", "/api/summary-report") => json_response(
+            &SummaryService::new(&state.storage)
+                .write_today_summary_report()
+                .map_err(to_bridge_error)?,
+        ),
         ("GET", "/api/summary-blocks") => json_response(
             &SummaryService::new(&state.storage)
                 .today_summary_blocks()
@@ -333,7 +338,13 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    use crate::{app_state::AppState, models::AppConfig, storage::Storage};
+    use chrono::Local;
+
+    use crate::{
+        app_state::AppState,
+        models::{AppConfig, LogEntry},
+        storage::Storage,
+    };
 
     #[test]
     fn parses_query_value_with_encoded_slash() {
@@ -381,5 +392,45 @@ mod tests {
 
         assert_eq!(response.status_code, 200);
         assert_eq!(response.body, "[]");
+    }
+
+    #[test]
+    fn summary_report_route_returns_generated_report() {
+        let dir = tempdir().unwrap();
+        let storage = Storage::new(dir.path()).unwrap();
+        storage
+            .save_config(&AppConfig {
+                project_name: "MindBack MVP".to_string(),
+                summary_enabled: false,
+                ..AppConfig::default()
+            })
+            .unwrap();
+        storage
+            .append_log_entry(&LogEntry {
+                timestamp: Local::now(),
+                project: "MindBack MVP".to_string(),
+                screenshot_thumb: "thumbs/example.jpg".to_string(),
+                model: "model".to_string(),
+                intent: "Wiring the real daily summary UI".to_string(),
+                is_on_project: true,
+                confidence: 0.9,
+                reason: "Unit test entry".to_string(),
+                visible_context: "editor".to_string(),
+                error: None,
+            })
+            .unwrap();
+        let state = AppState::new_with_storage(storage);
+
+        let response = handle_request(
+            &state,
+            DevBridgeRequest::new("POST", "/api/summary-report", ""),
+        )
+        .unwrap();
+
+        assert_eq!(response.status_code, 200);
+        let response_json: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+        assert!(response_json.get("path").is_some());
+        let result = response_json.get("result").unwrap();
+        assert!(result.get("projectAlignment").is_some());
     }
 }
