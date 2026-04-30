@@ -20,7 +20,7 @@
 
 - 截图当前依赖 macOS `screencapture` 命令。后续可以评估 `tauri-plugin-screenshots` 或实现 macOS 专用 bridge，以获得更细的权限和多屏控制。
 - Rust 后端默认调用 Python worker。默认 Python 优先使用 `~/Library/Application Support/MindBack/venvs/mlx-worker/bin/python`，不存在时回退到 `python3`；模型路径仍可通过设置页选择的模型名或本地模型路径解析。
-- Summary Agent 默认模型为 `deepseek-chat`，需要 `DEEPSEEK_API_KEY`。未配置 key 时，半小时摘要和日报仍会用本地规则生成。
+- Summary Agent 默认模型为 `deepseek-v4-flash` 的非思考模式，需要 `DEEPSEEK_API_KEY`。未配置 key 时，半小时摘要和日报仍会用本地规则生成。
 - 本地开发可复制 `.env.example` 为 `.env` 后填入 `DEEPSEEK_API_KEY`，或在启动前执行 `export DEEPSEEK_API_KEY=...`。真实 `.env` 已被 `.gitignore` 排除，不应提交。
 - Summary Agent 第一版只接收每张截图已有的文本识别 summary，不上传原始截图或全天图片。
 - 菜单栏入口还未实现。当前主窗口已经可用于配置和手动记录一次。

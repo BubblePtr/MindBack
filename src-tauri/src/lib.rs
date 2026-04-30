@@ -38,6 +38,7 @@ pub fn run() {
             commands::get_today_summary_blocks,
             commands::summarize_previous_half_hour,
             commands::generate_summary,
+            commands::generate_summary_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MindBack");

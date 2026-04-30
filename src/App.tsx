@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { House, SlidersHorizontal } from "@phosphor-icons/react";
 import {
-  generateSummary,
+  generateSummaryReport,
   getConfig,
   getStatus,
   getTodaySummaryBlocks,
@@ -13,7 +13,14 @@ import {
   stopRecording,
   summarizePreviousHalfHour,
 } from "./lib/api";
-import type { AppConfig, AppStatus, LogEntry, SummaryTimeBlock } from "./lib/types";
+import type {
+  AppConfig,
+  AppStatus,
+  LogEntry,
+  SummaryAgentResult,
+  SummaryAssessment,
+  SummaryTimeBlock,
+} from "./lib/types";
 import appIcon from "./assets/mindback-app-icon.png";
 import { Button } from "./components/ui/button";
 import { Dialog } from "./components/ui/dialog";
@@ -42,7 +49,7 @@ const DEFAULT_CONFIG: AppConfig = {
   project_description: "",
   interval_seconds: 60,
   model: MODELS[0],
-  summary_model: "deepseek-chat",
+  summary_model: "deepseek-v4-flash",
   summary_provider: "deepseek",
   summary_enabled: true,
 };
@@ -155,6 +162,19 @@ function summaryStatusLabel(status: SummaryTimeBlock["status"]) {
   }
 }
 
+function summaryAssessmentLabel(assessment: SummaryAssessment) {
+  switch (assessment) {
+    case "focused":
+      return "整体专注";
+    case "mixed":
+      return "需要复盘";
+    case "drifted":
+      return "明显偏离";
+    case "insufficient_data":
+      return "等待记录";
+  }
+}
+
 function mergeSummaryBlocks(
   blocks: SummaryTimeBlock[],
   refreshedBlock: SummaryTimeBlock | null,
@@ -179,49 +199,47 @@ function formatError(error: unknown) {
   return text;
 }
 
-function buildDailyReportView(
-  entries: LogEntry[],
-  blocks: SummaryTimeBlock[],
-  projectName: string,
-  onProjectRatio: string,
-): DailyReportView {
-  if (entries.length === 0) {
+function buildDailyReportView(report: SummaryAgentResult | null): DailyReportView {
+  if (!report) {
     return {
-      alignmentLabel: "等待记录",
-      overview: "今天还没有可复盘的记录。开始记录后，日报会基于时间段摘要生成。",
+      alignmentLabel: "等待生成",
+      overview: "点击生成日报后，这里会展示 Summary Agent 返回的今日总结。",
       primaryWork: [],
       driftNotes: [],
-      prompts: ["今天最重要的一件事是什么？"],
+      prompts: [],
     };
   }
 
-  const sortedBlocks = blocks
-    .filter((block) => block.record_count > 0)
-    .sort((left, right) => right.record_count - left.record_count);
+  const sortedBlocks = [...report.timeBlocks]
+    .filter((block) => block.recordCount > 0)
+    .sort((left, right) => right.recordCount - left.recordCount);
   const primaryWork = sortedBlocks
     .filter((block) => block.status === "on_project")
     .slice(0, 3)
     .map((block) => `${block.start} - ${block.end}：${block.summary}`);
-  const driftNotes = blocks
+  const blockDriftNotes = report.timeBlocks
     .filter((block) => block.status === "off_project" || block.status === "uncertain")
     .slice(0, 3)
     .map((block) => `${block.start} - ${block.end}：${block.summary}`);
+  const driftNotes = report.notableDrifts.length > 0
+    ? report.notableDrifts.map((drift) => `${drift.time}：${drift.reason}`)
+    : blockDriftNotes;
 
   return {
-    alignmentLabel: Number.parseInt(onProjectRatio, 10) >= 80 ? "整体专注" : "需要复盘",
-    overview: `${entries.length} 条记录，${onProjectRatio} 符合今日项目${projectName ? `「${projectName}」` : ""}。`,
+    alignmentLabel: summaryAssessmentLabel(report.projectAlignment.assessment),
+    overview: report.overview,
     primaryWork:
       primaryWork.length > 0
         ? primaryWork
-        : ["已有记录，但还没有生成稳定的时间段摘要。"],
+        : ["Summary Agent 没有标记明确符合今日项目的时间段。"],
     driftNotes:
       driftNotes.length > 0
         ? driftNotes
-        : ["暂未发现明显偏离或不确定片段。"],
-    prompts: [
-      "今天最值得保留的工作节奏是什么？",
-      "下一次开始前，哪个上下文可以提前准备好？",
-    ],
+        : ["Summary Agent 未指出明显偏离或不确定片段。"],
+    prompts:
+      report.reflectionPrompts.length > 0
+        ? report.reflectionPrompts
+        : ["Summary Agent 没有返回复盘问题。"],
   };
 }
 
@@ -232,6 +250,7 @@ function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [summaryBlocks, setSummaryBlocks] = useState<SummaryTimeBlock[]>([]);
+  const [dailyReport, setDailyReport] = useState<SummaryAgentResult | null>(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [selectedBucketKey, setSelectedBucketKey] = useState<string | null>(null);
   const [detailEntry, setDetailEntry] = useState<LogEntry | null>(null);
@@ -311,7 +330,7 @@ function App() {
           return {
             ...bucket,
             title: block.summary,
-            detail: `${label}，${block.record_count} 条记录，${block.on_project_ratio}% 符合今日项目${evidence ? `。${evidence}` : "。"}`,
+            detail: `${label}，${block.recordCount} 条记录，${block.onProjectRatio}% 符合今日项目${evidence ? `。${evidence}` : "。"}`,
           };
         }),
     [currentTime, summaryBlockByRange, timelineBuckets],
@@ -324,14 +343,8 @@ function App() {
   }, [entries]);
 
   const dailyReportView = useMemo(
-    () =>
-      buildDailyReportView(
-        entries,
-        summaryBlocks,
-        config.project_name,
-        onProjectRatio,
-      ),
-    [config.project_name, entries, onProjectRatio, summaryBlocks],
+    () => buildDailyReportView(dailyReport),
+    [dailyReport],
   );
 
   const detailThumbUrl = detailEntry ? thumbUrls[detailEntry.screenshot_thumb] : "";
@@ -514,9 +527,15 @@ function App() {
   async function handleSummary() {
     setBusy(true);
     try {
-      const path = await generateSummary();
-      setSummaryBlocks(await getTodaySummaryBlocks());
-      setMessage(`日报已生成：${path}`);
+      const report = await generateSummaryReport();
+      setDailyReport(report.result);
+      setSummaryBlocks(report.result.timeBlocks);
+      setSummaryPanelTab("daily");
+      setMessage(
+        report.result.error
+          ? `日报已生成（Summary Agent 回退：${report.result.error}）：${report.path}`
+          : `日报已生成：${report.path}`,
+      );
     } catch (error) {
       setMessage(formatError(error));
     } finally {

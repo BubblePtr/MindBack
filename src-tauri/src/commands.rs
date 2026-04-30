@@ -94,6 +94,15 @@ pub fn generate_summary(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn generate_summary_report(
+    state: State<'_, AppState>,
+) -> Result<crate::models::TodaySummaryReport, String> {
+    SummaryService::new(&state.storage)
+        .write_today_summary_report()
+        .map_err(to_command_error)
+}
+
+#[tauri::command]
 pub fn get_today_summary_blocks(
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::models::SummaryTimeBlock>, String> {
