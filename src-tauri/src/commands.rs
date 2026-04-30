@@ -7,6 +7,7 @@ use tauri::State;
 use crate::{
     app_state::AppState,
     models::{AppConfig, AppStatus, LogEntry},
+    recognition::restart_resident_worker,
     recorder,
     summary::SummaryService,
 };
@@ -22,10 +23,14 @@ pub fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
 
 #[tauri::command]
 pub fn save_config(config: AppConfig, state: State<'_, AppState>) -> Result<AppConfig, String> {
+    let old_config = state.storage.read_config().ok();
     state
         .storage
         .save_config(&config)
         .map_err(to_command_error)?;
+    if old_config.map(|c| c.model) != Some(config.model.clone()) {
+        restart_resident_worker(&config);
+    }
     Ok(config)
 }
 
