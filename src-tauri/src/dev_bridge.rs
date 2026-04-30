@@ -428,8 +428,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(response.status_code, 200);
-        assert!(response.body.contains("\"path\""));
-        assert!(response.body.contains("\"result\""));
-        assert!(response.body.contains("\"projectAlignment\""));
+        let response_json: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+        assert!(response_json.get("path").is_some());
+        let result = response_json.get("result").unwrap();
+        assert!(result.get("projectAlignment").is_some());
     }
 }

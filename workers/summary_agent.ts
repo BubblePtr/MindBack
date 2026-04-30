@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-Object.assign(globalThis, { AI_SDK_LOG_WARNINGS: false });
-
 const SummaryBlockStatusSchema = z.enum([
   "on_project",
   "off_project",

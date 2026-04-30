@@ -49,10 +49,9 @@ impl<'a> SummaryService<'a> {
     pub fn write_today_summary_report(&self) -> Result<TodaySummaryReport> {
         let today = Local::now().date_naive();
         let config = self.storage.read_config()?;
-        self.ensure_completed_window_summaries(config)?;
+        self.ensure_completed_window_summaries(&config)?;
         let entries = self.storage.list_entries_for(today)?;
         let blocks = read_summary_blocks_for(self.storage, today)?;
-        let config = self.storage.read_config()?;
         let result = if config.summary_enabled {
             let started_at = Instant::now();
             match run_summary_agent_daily(&config, today, &blocks) {
@@ -104,7 +103,7 @@ impl<'a> SummaryService<'a> {
         fallback_block(start, end, entries, None)
     }
 
-    fn ensure_completed_window_summaries(&self, config: AppConfig) -> Result<()> {
+    fn ensure_completed_window_summaries(&self, config: &AppConfig) -> Result<()> {
         let now = Local::now();
         let today = now.date_naive();
         let entries = self.storage.list_entries_for(today)?;
